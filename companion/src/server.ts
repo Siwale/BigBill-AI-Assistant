@@ -39,12 +39,13 @@ function requireAuth(req: IncomingMessage): Session | null {
 
 function allowlistedExec(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const allowed: Record<string, string[]> = {
-    bluetoothctl: ["devices", "paired-devices", "info", "pair", "connect", "disconnect", "remove", "scan"],
-    pactl: ["list", "get-default-sink", "set-default-sink", "set-sink-volume", "set-sink-mute", "get-sink-mute", "get-sink-volume", "info"],
-    wpctl: ["status", "get-volume", "set-volume", "set-mute"],
+    bluetoothctl: ["devices", "paired-devices", "info", "pair", "connect", "disconnect", "remove", "scan", "--version"],
+    pactl: ["list", "get-default-sink", "set-default-sink", "set-sink-volume", "set-sink-mute", "get-sink-mute", "get-sink-volume", "info", "--version"],
+    wpctl: ["status", "get-volume", "set-volume", "set-mute", "--version"],
     paplay: ["--volume"],
     "speaker-test": ["-t", "-l", "-c"],
     busctl: ["--user", "call", "list"],
+    which: ["bluetoothctl", "pactl", "wpctl"],
   };
   const base = cmd.split("/").pop() ?? cmd;
   if (!(base in allowed)) return Promise.resolve({ stdout: "", stderr: `command ${base} not allowlisted`, code: 1 });
