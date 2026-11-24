@@ -938,6 +938,31 @@ export const startRepositoryAuditTool: ToolDefinition = {
   },
 };
 
+export const searchArchivedConversationsTool: ToolDefinition = {
+  id: "search_archived_conversations",
+  name: "Search archived conversations",
+  description: "Search the user's archived conversations by keyword and return source references for the current active conversation.",
+  connectorId: "workspace",
+  risk: "R1",
+  requiredScopes: ["knowledge.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 8_000,
+  inputSchema: z.object({ query: z.string().min(2).max(200) }),
+  parameters: requestShape({ query: { type: "string" } }, ["query"]),
+  summarize: (input) => `Search archived conversations for “${(input as { query?: string }).query ?? ""}”`,
+  execute: async (raw, ctx): Promise<ToolSuccess> => {
+    const { query } = z.object({ query: z.string().min(2).max(200) }).parse(raw);
+    const { searchArchivedConversations } = await import("@/modules/conversations/archive");
+    const result = await searchArchivedConversations({ tenantId: ctx.tenantId, userId: ctx.userId, query });
+    return {
+      ok: true,
+      summary: result.conversations.length ? `Found ${result.conversations.length} archived conversation(s).` : "No archived conversations matched.",
+      data: { conversations: result.conversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })), note: "Open read-only in History or ask to continue." },
+    };
+  },
+};
+
 export const TOOL_REGISTRY: ToolDefinition[] = [
   createTaskTool,
   listTasksTool,
@@ -959,6 +984,7 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   listRepositoriesTool,
   getRepositoryStatusTool,
   startRepositoryAuditTool,
+  searchArchivedConversationsTool,
   ...disabledTools,
 ];
 
