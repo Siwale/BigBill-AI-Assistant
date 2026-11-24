@@ -99,6 +99,519 @@
   --cmd-glow: 0 0 20px rgba(0, 229, 255, 0.3), 0 0 40px rgba(0, 229, 255, 0.1);
   --cmd-radius: 16px;
   --cmd-radius-sm: 10px;
+
+  /* Loop 4 reference-sampled tokens (Section 2 of loop spec) */
+  --aida-bg-0: #03070b;
+  --aida-bg-1: #030b13;
+  --aida-bg-2: #020f1a;
+  --aida-surface-1: #031423;
+  --aida-surface-2: #052038;
+  --aida-surface-3: #062644;
+  --aida-surface-4: #072f52;
+  --aida-border: #0b4376;
+  --aida-border-strong: #0d4f8b;
+  --aida-blue-1: #0b4376;
+  --aida-blue-2: #0e5da4;
+  --aida-blue-3: #1d75b5;
+  --aida-blue-4: #187ac4;
+  --aida-cyan-1: #1598ec;
+  --aida-cyan-2: #1f9fe9;
+  --aida-cyan-3: #31baf2;
+  --aida-cyan-4: #48c9f4;
+  --aida-cyan-5: #5ad5fb;
+  --aida-amber-muted: #9c6b41;
+  --aida-amber: #be8d59;
+  --aida-amber-bright: #dbae7d;
+  --aida-success: #1fb580;
+  --aida-text: #afd6ea;
+  --aida-text-strong: #e2f2fa;
+  --aida-text-muted: #8492a2;
+  --aida-text-dim: #616d7f;
+  --aida-neutral: #737e8d;
+  --aida-error: #e85b62;
+}
+
+/* Loop 4 reference-accurate command-centre shell. Dark navy throughout —
+   no cream/white surfaces inside .aida-cc. */
+.aida-cc {
+  --cc-bg: var(--aida-bg-0);
+  --cc-panel: rgba(3, 20, 35, 0.82);
+  --cc-panel-2: rgba(5, 32, 56, 0.88);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--aida-text);
+  background:
+    radial-gradient(1100px 480px at 50% -8%, rgba(31, 159, 233, 0.14), transparent 60%),
+    radial-gradient(700px 320px at 12% 108%, rgba(190, 141, 89, 0.1), transparent 60%),
+    radial-gradient(700px 320px at 88% 108%, rgba(31, 159, 233, 0.08), transparent 60%),
+    linear-gradient(180deg, #03070b 0%, #030b13 55%, #020f1a 100%);
+  position: relative;
+}
+/* Cinematic control-room ambience: pure CSS depth, no raster image, no text baked in. */
+.aida-cc::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(220px 120px at 8% 12%, rgba(190, 141, 89, 0.12), transparent 70%),
+    radial-gradient(260px 140px at 92% 10%, rgba(190, 141, 89, 0.1), transparent 70%),
+    radial-gradient(420px 200px at 20% 90%, rgba(21, 152, 236, 0.1), transparent 70%),
+    radial-gradient(420px 200px at 80% 90%, rgba(21, 152, 236, 0.08), transparent 70%);
+  opacity: 0.9;
+}
+.aida-cc::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.5) 100%);
+}
+.aida-cc > * {
+  position: relative;
+  z-index: 1;
+}
+.aida-topbar {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 22px;
+  border-bottom: 1px solid rgba(11, 67, 118, 0.7);
+  background: rgba(3, 11, 19, 0.86);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.aida-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.aida-brand-name {
+  font-weight: 800;
+  letter-spacing: 4px;
+  font-size: 26px;
+  color: var(--aida-text-strong);
+}
+.aida-brand-sub {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--aida-text-muted);
+}
+.aida-nav {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.aida-nav a {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--aida-text-muted);
+  border: 1px solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.aida-nav a:hover {
+  color: var(--aida-text);
+  text-decoration: none;
+}
+.aida-nav a.active {
+  color: var(--aida-cyan-4);
+  background: rgba(31, 159, 233, 0.12);
+  border-color: rgba(31, 186, 242, 0.35);
+  box-shadow: 0 0 12px rgba(31, 186, 242, 0.25);
+}
+.aida-loop-badge {
+  font-size: 11px;
+  color: var(--aida-text);
+  background: rgba(31, 159, 233, 0.1);
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--aida-border);
+  white-space: nowrap;
+}
+.aida-rail {
+  width: 159px;
+  background: rgba(3, 11, 19, 0.82);
+  border-right: 1px solid rgba(11, 67, 118, 0.7);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.aida-rail a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--aida-text-muted);
+  font-size: 13px;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+.aida-rail a:hover {
+  color: var(--aida-text);
+  text-decoration: none;
+}
+.aida-rail a.active {
+  color: var(--aida-cyan-4);
+  background: rgba(31, 159, 233, 0.12);
+  border-left-color: var(--aida-cyan-3);
+  box-shadow: 0 0 12px rgba(31, 186, 242, 0.18);
+}
+.aida-panel {
+  background: var(--cc-panel);
+  border: 1px solid rgba(29, 117, 181, 0.45);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(90, 213, 251, 0.08);
+  backdrop-filter: blur(8px);
+}
+.aida-panel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--aida-cyan-4);
+}
+.aida-meta {
+  font-size: 12px;
+  color: var(--aida-text-muted);
+}
+.aida-body {
+  font-size: 13px;
+  color: var(--aida-text);
+  line-height: 1.6;
+}
+.aida-grid-eng {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr) 395px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1280px) {
+  .aida-grid-eng {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+  .aida-right-stack {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+@media (max-width: 900px) {
+  .aida-grid-eng {
+    grid-template-columns: 1fr;
+  }
+  .aida-right-stack {
+    grid-template-columns: 1fr;
+  }
+  .aida-rail {
+    display: none;
+  }
+  .aida-nav {
+    display: none;
+  }
+  .aida-topbar {
+    height: 64px;
+    padding: 0 14px;
+  }
+}
+/* Timeline */
+.aida-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.aida-timeline li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  position: relative;
+  padding: 7px 0 7px 2px;
+  font-size: 13px;
+}
+.aida-timeline li::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 26px;
+  bottom: -6px;
+  width: 2px;
+  background: rgba(11, 67, 118, 0.8);
+}
+.aida-timeline li:last-child::before {
+  display: none;
+}
+.aida-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  border: 1px solid var(--aida-border-strong);
+  color: var(--aida-text-muted);
+  background: rgba(3, 20, 35, 0.9);
+}
+.aida-dot.done {
+  background: rgba(31, 181, 128, 0.18);
+  border-color: var(--aida-success);
+  color: var(--aida-success);
+}
+.aida-dot.active {
+  border-color: var(--aida-cyan-3);
+  color: var(--aida-cyan-4);
+  box-shadow: 0 0 10px rgba(49, 186, 242, 0.6);
+}
+.aida-dot.failed {
+  border-color: var(--aida-error);
+  color: var(--aida-error);
+}
+/* Activity feed */
+.aida-feed {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aida-feed-row {
+  display: flex;
+  gap: 8px;
+  border-left: 2px solid rgba(11, 67, 118, 0.8);
+  padding-left: 8px;
+  color: var(--aida-text);
+}
+.aida-feed-row time {
+  color: var(--aida-text-muted);
+  flex: 0 0 auto;
+}
+/* Findings */
+.aida-finding {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: rgba(2, 8, 18, 0.5);
+  border: 1px solid rgba(29, 117, 181, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  width: 100%;
+  color: var(--aida-text);
+  text-align: left;
+  cursor: pointer;
+}
+.aida-sev {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #020812;
+  flex: 0 0 auto;
+}
+/* Stage ribbon */
+.aida-ribbon {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  overflow-x: auto;
+  padding: 12px;
+}
+.aida-stage {
+  flex: 1 1 0;
+  min-width: 150px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(29, 117, 181, 0.4);
+  background: rgba(3, 20, 35, 0.7);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  color: var(--aida-text-muted);
+}
+.aida-stage.active-thinking {
+  border-color: var(--aida-amber);
+  color: var(--aida-amber-bright);
+  box-shadow: 0 0 14px rgba(190, 141, 89, 0.45);
+}
+.aida-stage.active {
+  border-color: var(--aida-cyan-3);
+  color: var(--aida-cyan-4);
+  box-shadow: 0 0 14px rgba(49, 186, 242, 0.4);
+}
+.aida-stage.done {
+  border-color: rgba(31, 181, 128, 0.6);
+  color: var(--aida-success);
+}
+/* Command composer pill */
+.aida-composer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 999px;
+  padding: 10px 12px 10px 10px;
+  background: rgba(3, 20, 35, 0.9);
+  border: 1px solid var(--aida-cyan-3);
+  box-shadow: 0 0 18px rgba(49, 186, 242, 0.35), inset 0 0 24px rgba(31, 159, 233, 0.08);
+}
+.aida-composer input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--aida-text-strong);
+  font-size: 15px;
+  min-width: 0;
+}
+.aida-composer input::placeholder {
+  color: var(--aida-text-muted);
+}
+.aida-mic {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: rgba(31, 159, 233, 0.15);
+  border: 1px solid var(--aida-cyan-3);
+  color: var(--aida-cyan-4);
+}
+.aida-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid rgba(29, 117, 181, 0.4);
+  color: var(--aida-text-muted);
+}
+/* Dark conversation inside the command centre: remap light chat tokens to the
+   reference navy palette. No cream/white surfaces inside .aida-cc. */
+.aida-cc .chat-layout,
+.aida-cc .chat-main {
+  background: rgba(3, 20, 35, 0.82);
+}
+.aida-cc .chat-head {
+  background: rgba(3, 11, 19, 0.9);
+  border-bottom: 1px solid var(--aida-border);
+}
+.aida-cc .chat-head h1 {
+  color: var(--aida-text-strong);
+}
+.aida-cc .chat-head-sub {
+  color: var(--aida-text-muted);
+}
+.aida-cc .conv-rail {
+  background: rgba(3, 11, 19, 0.85);
+  border-right: 1px solid var(--aida-border);
+}
+.aida-cc .conv-item {
+  color: var(--aida-text-muted);
+}
+.aida-cc .conv-item:hover {
+  background: rgba(31, 159, 233, 0.1);
+}
+.aida-cc .conv-item.active {
+  background: rgba(31, 159, 233, 0.14);
+  border-color: var(--aida-border-strong);
+  color: var(--aida-text);
+}
+.aida-cc .conv-empty,
+.aida-cc .chat-empty p,
+.aida-cc .composer-note,
+.aida-cc .message-meta {
+  color: var(--aida-text-muted);
+}
+.aida-cc .chat-empty h2,
+.aida-cc .message-text,
+.aida-cc .message-meta strong {
+  color: var(--aida-text);
+}
+.aida-cc .message-text code {
+  background: rgba(31, 159, 233, 0.12);
+}
+.aida-cc .quick-btn {
+  background: rgba(3, 20, 35, 0.9);
+  border-color: var(--aida-border);
+  color: var(--aida-text-muted);
+}
+.aida-cc .quick-btn strong {
+  color: var(--aida-text);
+}
+.aida-cc .composer-wrap {
+  background: transparent;
+  border-top: 1px solid var(--aida-border);
+}
+.aida-cc .composer {
+  background: rgba(3, 20, 35, 0.95);
+  border-color: var(--aida-border-strong);
+  box-shadow: 0 0 18px rgba(49, 186, 242, 0.25);
+}
+.aida-cc .composer textarea {
+  color: var(--aida-text-strong);
+}
+.aida-cc .composer textarea::placeholder {
+  color: var(--aida-text-muted);
+}
+.aida-cc .voice-bar {
+  background: rgba(3, 20, 35, 0.9);
+  border-color: var(--aida-border);
+  color: var(--aida-text);
+}
+.aida-cc .voice-transcript {
+  color: var(--aida-text-muted);
+}
+.aida-cc .btn {
+  background: rgba(3, 20, 35, 0.9);
+  border-color: var(--aida-border-strong);
+  color: var(--aida-text);
+}
+.aida-cc .btn:hover {
+  background: rgba(5, 32, 56, 0.95);
+}
+.aida-cc .btn-primary {
+  background: var(--aida-cyan-2);
+  border-color: var(--aida-cyan-2);
+  color: #020812;
+}
+.aida-cc .voice-toggle {
+  background: rgba(3, 20, 35, 0.9);
+  border: 1px solid var(--aida-border-strong);
+  color: var(--aida-text-muted);
+}
+.aida-cc .voice-toggle.on {
+  background: rgba(31, 159, 233, 0.18);
+  border-color: var(--aida-cyan-3);
+  color: var(--aida-cyan-4);
+}
+.aida-cc .conv-rail-head .tiny,
+.aida-cc .conv-empty {
+  color: var(--aida-text-muted);
+}
+.aida-history-drawer {
+  background: rgba(3, 20, 35, 0.95);
+  border: 1px solid rgba(29, 117, 181, 0.45);
+  border-radius: 14px;
+  color: var(--aida-text);
+}
+.aida-history-drawer a {
+  color: var(--aida-text);
 }
 
 * {

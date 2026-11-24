@@ -11,8 +11,9 @@ export async function searchArchivedConversations(params: { tenantId: string; us
   const convs = await db.select().from(conversations).where(and(eq(conversations.tenantId, params.tenantId), eq(conversations.userId, params.userId), eq(conversations.archived, true))).orderBy(desc(conversations.updatedAt)).limit(50);
   // Simple keyword match on title
   const matched = convs.filter((c) => c.title.toLowerCase().includes(q.toLowerCase())).slice(0, limit);
+  const safe = q.replace(/[%_\\]/g, (c) => `\\${c}`);
   // Also search messages for keyword
-  const msgMatches = await db.select({ conversationId: messages.conversationId, content: messages.content, createdAt: messages.createdAt }).from(messages).where(and(eq(messages.tenantId, params.tenantId), ilike(messages.content, `%${q}%`))).limit(20);
+  const msgMatches = await db.select({ conversationId: messages.conversationId, content: messages.content, createdAt: messages.createdAt }).from(messages).where(and(eq(messages.tenantId, params.tenantId), ilike(messages.content, `%${safe}%`))).limit(20);
   const byConv = new Map<string, typeof msgMatches>();
   for (const m of msgMatches) {
     const arr = byConv.get(m.conversationId) ?? [];

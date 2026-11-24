@@ -280,6 +280,8 @@ export async function runAssistantTurn(params: {
     log("warn", "model_turn_failed", {
       correlationId: params.correlationId,
       kind: modelError.kind,
+      status: modelError.status ?? null,
+      code: modelError.code ?? null,
       tenantId: session.user.tenantId,
     });
     await openIncident({
@@ -295,7 +297,7 @@ export async function runAssistantTurn(params: {
               ? "The model provider did not respond within the timeout."
               : "The model provider returned an error.",
       impact: "The assistant could not produce a full response. The user's message was preserved.",
-      evidence: `correlationId=${params.correlationId}; kind=${modelError.kind}`,
+      evidence: `correlationId=${params.correlationId}; kind=${modelError.kind}; status=${modelError.status ?? "n/a"}; code=${modelError.code ?? "n/a"}`,
       nextStep:
         modelError.kind === "auth"
           ? "Check the model provider credentials."

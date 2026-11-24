@@ -29,12 +29,27 @@ export async function createConversation(params: {
     .values({
       tenantId: params.tenantId,
       userId: params.userId,
-      title: params.title?.slice(0, 120) || "New conversation",
+      title: params.title?.slice(0, 120) || "Conversation",
       channel: params.channel ?? "text",
     })
     .returning();
   if (!conversation) throw new ApiError(500, "Could not start a conversation.", "conversation_create_failed");
   return conversation;
+}
+
+export async function listArchivedConversations(tenantId: string, userId: string, limit = 40): Promise<Conversation[]> {
+  return db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.tenantId, tenantId),
+        eq(conversations.userId, userId),
+        eq(conversations.archived, true),
+      ),
+    )
+    .orderBy(desc(conversations.updatedAt))
+    .limit(Math.min(limit, 100));
 }
 
 export async function listConversations(tenantId: string, userId: string, limit = 40): Promise<Conversation[]> {
@@ -123,8 +138,8 @@ export async function maybeSetTitleFromMessage(
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
     .limit(1);
-  if (conversation[0]?.title !== "New conversation") return;
-  const title = userMessage.replace(/\s+/g, " ").trim().slice(0, 70) || "New conversation";
+  if (conversation[0]?.title !== "New conversation" && conversation[0]?.title !== "Conversation") return;
+  const title = userMessage.replace(/\s+/g, " ").trim().slice(0, 70) || "Conversation";
   await db
     .update(conversations)
     .set({ title })

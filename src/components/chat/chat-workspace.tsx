@@ -16,7 +16,6 @@ import {
   VolumeX,
 } from "lucide-react";
 import { AudioVisualizer } from "@/components/voice/audio-visualizer";
-import { ThemeSwitcher } from "@/components/theme/theme-provider";
 import { useRealtimeVoice } from "@/components/voice/realtime-webrtc";
 import { useLiveVoice } from "@/components/voice/live-webrtc";
 
@@ -38,6 +37,15 @@ type ChatMessage = {
   createdAt: string;
 };
 type ConversationSummary = { id: string; title: string; updatedAt: string };
+
+/** Never show a bare "New conversation" placeholder: derive an honest label. */
+export function displayConversationTitle(c: ConversationSummary): string {
+  const t = (c.title ?? "").trim();
+  if (t && t.toLowerCase() !== "new conversation") return t;
+  const d = new Date(c.updatedAt);
+  const label = Number.isNaN(d.getTime()) ? "untitled" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `Conversation — ${label}`;
+}
 type VoiceConfig = { provider?: string; voiceId?: string; language?: string; rate?: number };
 type VoiceState = "idle" | "listening" | "transcribing" | "thinking" | "speaking" | "error";
 
@@ -647,6 +655,19 @@ export function ChatWorkspace({
       const visemes = await visemePromise;
       if (visemes) onViseme?.(visemes, Date.now());
       audioRef.current = audio;
+      // Re-anchor the mouth schedule to the real audio duration once known,
+      // so visemes track actual speech instead of the text-length estimate.
+      audio.onloadedmetadata = () => {
+        const seconds = audio.duration;
+        if (Number.isFinite(seconds) && seconds > 0.5 && seconds < 300) {
+          void fetch("/api/voice/visemes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text.slice(0, 400), durationMs: Math.round(seconds * 1000) }) })
+            .then((r) => r.json() as Promise<{ visemes?: import("@/modules/voice/viseme").TimedViseme[] }>)
+            .then((d) => {
+              if (d.visemes && audioRef.current === audio) onViseme?.(d.visemes, Date.now());
+            })
+            .catch(() => {});
+        }
+      };
       audio.onended = () => {
         stopPlaybackLevel();
         URL.revokeObjectURL(url);
@@ -707,7 +728,7 @@ export function ChatWorkspace({
           const newId = createdData.conversation.id;
           setConversationId(newId);
           setConversations((previous) => [
-            { id: newId, title: "New conversation", updatedAt: new Date().toISOString() },
+            { id: newId, title: `Conversation — ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, updatedAt: new Date().toISOString() },
             ...previous,
           ]);
           if (typeof window !== "undefined") {
@@ -752,7 +773,7 @@ export function ChatWorkspace({
             conversation.id === id
               ? {
                   ...conversation,
-                  title: conversation.title === "New conversation" ? text.slice(0, 70) : conversation.title,
+                  title: conversation.title === "New conversation" || conversation.title.startsWith("Conversation —") ? text.slice(0, 70) : conversation.title,
                   updatedAt: new Date().toISOString(),
                 }
               : conversation,
@@ -776,6 +797,16 @@ export function ChatWorkspace({
     },
     [speak],
   );
+
+  // Persistent command-centre composer (shell footer) continues the same conversation.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      if (typeof text === "string" && text.trim()) void sendMessage(text, "text");
+    };
+    window.addEventListener("aida:ask", handler);
+    return () => window.removeEventListener("aida:ask", handler);
+  }, [sendMessage]);
 
   async function startVoiceSession(id: string, mode: "browser" | "server") {
     try {
@@ -804,7 +835,7 @@ export function ChatWorkspace({
       }
       setConversationId(data.conversation.id);
       setConversations((previous) => [
-        { id: data.conversation!.id, title: "New conversation", updatedAt: new Date().toISOString() },
+        { id: data.conversation!.id, title: `Conversation — ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, updatedAt: new Date().toISOString() },
         ...previous,
       ]);
       if (typeof window !== "undefined") {
@@ -1165,9 +1196,9 @@ export function ChatWorkspace({
                 key={conversation.id}
                 href={`/app?c=${conversation.id}`}
                 className={`conv-item${conversation.id === conversationId ? " active" : ""}`}
-                title={conversation.title}
+                title={displayConversationTitle(conversation)}
               >
-                {conversation.title}
+                {displayConversationTitle(conversation)}
               </Link>
             ))
           )}
@@ -1183,61 +1214,8 @@ export function ChatWorkspace({
             </p>
           </div>
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
-            <ThemeSwitcher small />
-            <button
-              className={`btn btn-sm ${liveEnabled ? "btn-primary" : ""}`}
-              type="button"
-              onClick={async () => {
-                if (liveEnabled) {
-                  live.disconnect();
-                  setLiveEnabled(false);
-                  setVoiceState("idle");
-                } else {
-                  const id = conversationIdRef.current || (await ensureConversationForVoice());
-                  if (!id) return;
-                  setLiveEnabled(true);
-                  const ok = await live.connect();
-                  if (!ok) {
-                    setLiveEnabled(false);
-                    // Fallback to Realtime if Live not available
-                    setRealtimeEnabled(true);
-                    await realtime.connect(id);
-                  }
-                }
-              }}
-              title={liveEnabled ? "Live connected — full-duplex, barge-in ready" : "Start live conversation (GPT-Live full-duplex)"}
-            >
-              {liveEnabled ? "Live ●" : "Start live conversation"}
-            </button>
-            {liveEnabled ? (
-              <button className="btn btn-sm" type="button" onClick={() => live.setMuted(true)} title="Mute microphone (keep session)">
-                Mute
-              </button>
-            ) : null}
-            {liveEnabled ? (
-              <button className="btn btn-sm" type="button" onClick={() => live.setMuted(false)} title="Unmute">
-                Unmute
-              </button>
-            ) : null}
-            <button
-              className={`btn btn-sm ${realtimeEnabled ? "btn-primary" : ""}`}
-              type="button"
-              onClick={async () => {
-                if (realtimeEnabled) {
-                  realtime.disconnect();
-                  setRealtimeEnabled(false);
-                  setVoiceState("idle");
-                } else {
-                  const id = conversationIdRef.current || (await ensureConversationForVoice());
-                  if (!id) return;
-                  setRealtimeEnabled(true);
-                  await realtime.connect(id);
-                }
-              }}
-              title={realtimeEnabled ? "Realtime connected" : "Realtime fallback (record/transcribe)"}
-            >
-              {realtimeEnabled ? "Realtime on" : "Realtime"}
-            </button>
+            {/* Voice replies: user preference, compact. Theme/mode switches live in Settings;
+                live/realtime sessions start from an explicit mic action, not a header button. */}
             <button
               className={`voice-toggle${voiceMode ? " on" : ""}`}
               type="button"

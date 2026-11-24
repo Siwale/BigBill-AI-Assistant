@@ -397,6 +397,12 @@ export function SettingsView({
           BOS, Khapy and MotherTracker remain not connected. Sending, publishing, spending and destructive
           actions remain disabled.
         </p>
+        {process.env.NODE_ENV !== "production" ? (
+          <p className="tiny muted">
+            Developer: <a href="/app/aida-preview">Aida Presence Preview (DEMO — NOT LIVE)</a> — facial/viseme
+            test harness. Never touches production conversations or findings.
+          </p>
+        ) : null}
       </section>
     </div>
   );

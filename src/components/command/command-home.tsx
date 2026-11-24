@@ -25,14 +25,14 @@ export function CommandHome({ assistantName, userName, conversations, activeConv
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16 }}>
         <AidaAvatarStage state={avatarState} level={level} visemes={visemes} audioStartMs={audioStartMs} />
-        <div className="command-env" style={{ background: "var(--cmd-surface)", border: "1px solid var(--cmd-line)", borderRadius: "var(--cmd-radius)", padding: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 14, letterSpacing: 1, color: "var(--cmd-cyan)" }}>Current Focus</h3>
-          <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--cmd-ink-soft)" }}>Ready for your next command. Ask {assistantName} to review a repository, prepare a briefing, or manage devices.</p>
+        <div className="aida-panel" style={{ padding: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 14, letterSpacing: 1, color: "var(--aida-cyan-4)" }}>Current Focus</h3>
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--aida-text)" }}>Ready for your next command. Ask {assistantName} to review a repository, prepare a briefing, or manage devices.</p>
           <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, background: "rgba(0,229,255,0.1)", border: "1px solid var(--cmd-line)", padding: "4px 8px", borderRadius: 20 }}>Loop 4 · Engineering Intelligence</span>
-            <span style={{ fontSize: 11, background: "rgba(255,204,0,0.1)", border: "1px solid rgba(255,204,0,0.2)", padding: "4px 8px", borderRadius: 20, color: "var(--cmd-amber)" }}>Voice + Text Unified</span>
+            <span style={{ fontSize: 11, background: "rgba(31,159,233,0.1)", border: "1px solid var(--aida-border)", padding: "4px 8px", borderRadius: 20, color: "var(--aida-text)" }}>Loop 4 · Engineering Intelligence</span>
+            <span style={{ fontSize: 11, background: "rgba(190,141,89,0.12)", border: "1px solid var(--aida-amber)", padding: "4px 8px", borderRadius: 20, color: "var(--aida-amber-bright)" }}>Voice + Text Unified</span>
           </div>
-          <div style={{ marginTop: 12, fontSize: 12, color: "var(--cmd-muted)" }}>{conversations.length} conversations • {initialMessages.length} messages in view</div>
+          <div style={{ marginTop: 12, fontSize: 12, color: "var(--aida-text-muted)" }}>One continuous conversation — older turns are archived and stay searchable.</div>
         </div>
       </div>
       <ChatWorkspace

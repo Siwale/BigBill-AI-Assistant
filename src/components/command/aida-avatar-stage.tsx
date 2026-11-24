@@ -1,137 +1,316 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import type { AidaCoreState } from "./aida-core";
 import type { TimedViseme } from "@/modules/voice/viseme";
 import { visemeToMouthState } from "@/modules/voice/viseme";
 
-export function AidaAvatarStage({ state, level = 0, visemes = null as TimedViseme[] | null, audioStartMs = null as number | null }: { state: AidaCoreState; level?: number; visemes?: TimedViseme[] | null; audioStartMs?: number | null }) {
+/**
+ * Loop 4 Aida avatar stage.
+ *
+ * Interim renderer: a procedural digital-human bust (face anatomy, blink,
+ * gaze, jaw/viseme rig) built with the project's existing Three.js
+ * dependency. No network fetch, no paid service.
+ *
+ * BLOCKER (documented in docs/loop4/reference-gap-analysis.md): no licensed
+ * rigged human GLB is bundled yet. This stage exposes the same viseme/rig
+ * adapter a GLB would drive (jawOpen/mouthWidth/gaze/blink weights), so a
+ * licensed asset can replace the procedural meshes without changing callers.
+ */
+
+type Props = {
+  state: AidaCoreState;
+  level?: number;
+  visemes?: TimedViseme[] | null;
+  audioStartMs?: number | null;
+};
+
+function skinMaterial() {
+  return new THREE.MeshStandardMaterial({ color: 0xc9a186, roughness: 0.55, metalness: 0.02 });
+}
+
+export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs = null }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const rafRef = useRef<number | null>(null);
   const visemesRef = useRef<TimedViseme[] | null>(visemes);
   const audioStartRef = useRef<number | null>(audioStartMs);
+  const stateRef = useRef<AidaCoreState>(state);
+  const levelRef = useRef(level);
+  const [webglFailed, setWebglFailed] = useState(false);
   useEffect(() => { visemesRef.current = visemes; }, [visemes]);
   useEffect(() => { audioStartRef.current = audioStartMs; }, [audioStartMs]);
+  useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => { levelRef.current = level; }, [level]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch {
+      setWebglFailed(true);
+      return;
+    }
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x020812);
-    sceneRef.current = scene;
+    const camera = new THREE.PerspectiveCamera(38, mount.clientWidth / Math.max(1, mount.clientHeight), 0.1, 100);
+    camera.position.set(0, 0.25, 4.1);
 
-    const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.1, 100);
-    camera.position.set(0, 0.2, 3.2);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
+    const onContextLost = (e: Event) => { e.preventDefault(); setWebglFailed(true); };
+    renderer.domElement.addEventListener("webglcontextlost", onContextLost);
 
-    // Lights
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
-    keyLight.position.set(1, 1.5, 2);
-    scene.add(keyLight);
-    const rimLight = new THREE.DirectionalLight(0x00e5ff, 0.6);
-    rimLight.position.set(-1.5, 0.5, -1);
-    scene.add(rimLight);
-    scene.add(new THREE.AmbientLight(0x445588, 0.4));
+    // Lighting: warm key (skin) + cyan rim (hologram) + soft fill
+    const key = new THREE.DirectionalLight(0xfff1e0, 1.1);
+    key.position.set(1.2, 1.6, 2.4);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x31baf2, 1.4);
+    rim.position.set(-1.8, 0.6, -1.2);
+    scene.add(rim);
+    const under = new THREE.PointLight(0x48c9f4, 0.7, 8);
+    under.position.set(0, -1.4, 1.2);
+    scene.add(under);
+    scene.add(new THREE.AmbientLight(0x33415e, 0.7));
 
-    // Head — sphere as placeholder bust (licensed synthetic, not a real person)
-    const headGeo = new THREE.SphereGeometry(0.85, 32, 32);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xd6b8a8, roughness: 0.5, metalness: 0.05 });
-    const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 0.35;
-    scene.add(head);
+    const avatar = new THREE.Group();
+    scene.add(avatar);
 
-    // Shoulders
-    const shoulderGeo = new THREE.CylinderGeometry(1.1, 1.3, 0.6, 32);
-    const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x0a162a, roughness: 0.7 });
-    const shoulders = new THREE.Mesh(shoulderGeo, shoulderMat);
-    shoulders.position.y = -0.65;
-    scene.add(shoulders);
+    // Cranium
+    const headGeo = new THREE.SphereGeometry(0.62, 48, 48);
+    headGeo.scale(0.88, 1.08, 0.94);
+    const head = new THREE.Mesh(headGeo, skinMaterial());
+    head.position.y = 0.55;
+    avatar.add(head);
 
-    // Holographic rings
+    // Jaw group (viseme-driven)
+    const jaw = new THREE.Group();
+    jaw.position.set(0, 0.18, 0.12);
+    avatar.add(jaw);
+    const chinGeo = new THREE.SphereGeometry(0.34, 32, 32);
+    chinGeo.scale(0.95, 0.75, 0.9);
+    const chin = new THREE.Mesh(chinGeo, skinMaterial());
+    chin.position.set(0, -0.02, 0.1);
+    jaw.add(chin);
+    // Lower lip follows jaw
+    const lowerLipGeo = new THREE.SphereGeometry(0.09, 24, 24);
+    lowerLipGeo.scale(1.9, 0.55, 0.8);
+    const lipMat = new THREE.MeshStandardMaterial({ color: 0x8f4f4a, roughness: 0.5 });
+    const lowerLip = new THREE.Mesh(lowerLipGeo, lipMat);
+    lowerLip.position.set(0, 0.14, 0.52);
+    jaw.add(lowerLip);
+    // Upper lip (fixed to head)
+    const upperLipGeo = new THREE.SphereGeometry(0.085, 24, 24);
+    upperLipGeo.scale(1.8, 0.45, 0.7);
+    const upperLip = new THREE.Mesh(upperLipGeo, lipMat.clone());
+    upperLip.position.set(0, 0.3, 0.52);
+    avatar.add(upperLip);
+    // Mouth interior
+    const mouthGeo = new THREE.SphereGeometry(0.1, 24, 24);
+    mouthGeo.scale(1.5, 0.5, 0.4);
+    const mouth = new THREE.Mesh(mouthGeo, new THREE.MeshStandardMaterial({ color: 0x2a0f0e, roughness: 0.9 }));
+    mouth.position.set(0, 0.2, 0.5);
+    mouth.scale.set(1, 0.15, 1);
+    avatar.add(mouth);
+
+    // Eyes
+    const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf2f5f7, roughness: 0.25 });
+    const irisMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.3 });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
+    const eyeGroups: THREE.Group[] = [];
+    const lidMeshes: THREE.Mesh[] = [];
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      g.position.set(side * 0.2, 0.62, 0.5);
+      const white = new THREE.Mesh(new THREE.SphereGeometry(0.085, 24, 24), eyeWhiteMat);
+      white.scale.set(1.0, 0.62, 0.55);
+      g.add(white);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.038, 20, 20), irisMat);
+      iris.position.z = 0.048;
+      g.add(iris);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 16), pupilMat);
+      pupil.position.z = 0.085;
+      g.add(pupil);
+      // Upper lid (blink: scale y down over eye)
+      const lid = new THREE.Mesh(new THREE.SphereGeometry(0.1, 24, 16), skinMaterial());
+      lid.scale.set(1.15, 0.75, 0.6);
+      lid.position.z = 0.012;
+      lid.visible = false;
+      g.add(lid);
+      lidMeshes.push(lid);
+      avatar.add(g);
+      eyeGroups.push(g);
+    }
+    // Brows
+    const browMat = new THREE.MeshStandardMaterial({ color: 0x1d1410, roughness: 0.8 });
+    const brows: THREE.Mesh[] = [];
+    for (const side of [-1, 1]) {
+      const brow = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 16), browMat);
+      brow.scale.set(2.1, 0.45, 0.7);
+      brow.position.set(side * 0.22, 0.82, 0.5);
+      brow.rotation.z = side * -0.08;
+      avatar.add(brow);
+      brows.push(brow);
+    }
+    // Nose
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 16), skinMaterial());
+    nose.position.set(0, 0.42, 0.58);
+    nose.rotation.x = 0.25;
+    avatar.add(nose);
+    // Ears
+    for (const side of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), skinMaterial());
+      ear.scale.set(0.45, 1, 0.7);
+      ear.position.set(side * 0.55, 0.55, 0.02);
+      avatar.add(ear);
+    }
+    // Hair: back volume + top sweep + tied-back bun silhouette
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0x14100d, roughness: 0.65 });
+    const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.66, 32, 32), hairMat);
+    hairBack.scale.set(0.95, 1.12, 0.95);
+    hairBack.position.set(0, 0.62, -0.14);
+    avatar.add(hairBack);
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 24), hairMat);
+    bun.position.set(0, 1.05, -0.5);
+    avatar.add(bun);
+    // Neck + shoulders/bust
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.23, 0.34, 24), skinMaterial());
+    neck.position.y = -0.28;
+    avatar.add(neck);
+    const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x0a1a2e, roughness: 0.6 });
+    const shoulders = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 0.55, 32), shoulderMat);
+    shoulders.position.y = -0.72;
+    avatar.add(shoulders);
+
+    // Holographic rings + pedestal + particle accents
     const rings: THREE.Mesh[] = [];
     for (let i = 0; i < 3; i += 1) {
-      const ringGeo = new THREE.TorusGeometry(1.05 + i * 0.18, 0.015, 8, 64);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.35 });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1.0 + i * 0.2, 0.014, 8, 72),
+        new THREE.MeshBasicMaterial({ color: 0x31baf2, transparent: true, opacity: 0.4 - i * 0.08 }),
+      );
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = -0.15 - i * 0.05;
-      rings.push(ring);
+      ring.position.y = -0.35 - i * 0.07;
       scene.add(ring);
+      rings.push(ring);
     }
-
-    // Pedestal
-    const pedestalGeo = new THREE.CylinderGeometry(1.4, 1.6, 0.15, 64);
-    const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x00e5ff, emissive: 0x00e5ff, emissiveIntensity: 0.3, transparent: true, opacity: 0.6 });
-    const pedestal = new THREE.Mesh(pedestalGeo, pedestalMat);
-    pedestal.position.y = -1.05;
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.25, 1.45, 0.14, 64),
+      new THREE.MeshStandardMaterial({ color: 0x1598ec, emissive: 0x1598ec, emissiveIntensity: 0.5, transparent: true, opacity: 0.55 }),
+    );
+    pedestal.position.y = -1.15;
     scene.add(pedestal);
+    // Cyan particle accents (ambient only; never fake activity)
+    const pGeo = new THREE.BufferGeometry();
+    const pCount = 120;
+    const pos = new Float32Array(pCount * 3);
+    for (let i = 0; i < pCount; i += 1) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 1.2 + Math.random() * 0.8;
+      pos[i * 3] = Math.cos(a) * r;
+      pos[i * 3 + 1] = -0.9 + Math.random() * 2.2;
+      pos[i * 3 + 2] = Math.sin(a) * r;
+    }
+    pGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    const particles = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0x5ad5fb, size: 0.02, transparent: true, opacity: 0.7 }));
+    scene.add(particles);
 
+    // Expression/blink/gaze rig state
     let frame = 0;
-    let isHidden = false;
-    const onVisibility = () => {
-      isHidden = document.hidden;
-    };
-    document.addEventListener("visibilitychange", onVisibility);
+    let blinkAt = 90;
+    let blinking = 0;
+    let gazeX = 0;
+    let gazeY = 0;
+    let gazeTargetX = 0;
+    let gazeTargetY = 0;
+    let gazeAt = 0;
+    let raf = 0;
+    let hidden = false;
+    const onVis = () => { hidden = document.hidden; };
+    document.addEventListener("visibilitychange", onVis);
 
     const animate = () => {
-      if (isHidden || prefersReduced) {
-        // Reduced motion: static
-        renderer.render(scene, camera);
-        rafRef.current = requestAnimationFrame(animate);
-        return;
-      }
-      frame += 1;
-      // Breathing
-      head.position.y = 0.35 + Math.sin(frame * 0.015) * 0.02;
-      // Rings rotation for searching/inspecting
-      if (state === "searching" || state === "inspecting") {
-        rings.forEach((r, i) => (r.rotation.z += 0.005 + i * 0.002));
-      }
-      // Speaking — viseme timeline if available (real provider alignment), else level fallback (labelled approximate)
-      if (state === "speaking") {
-        const v = visemesRef.current;
-        const start = audioStartRef.current;
-        if (v && start !== null) {
-          const elapsed = Date.now() - start;
-          const active = v.find((vis) => elapsed >= vis.startMs && elapsed < vis.endMs) ?? v[v.length - 1];
-          if (active) {
-            const { jawOpen } = visemeToMouthState(active.viseme);
-            head.scale.set(1, 1 + jawOpen * 0.12, 1);
+      const s = stateRef.current;
+      const lvl = Math.max(0, Math.min(1, levelRef.current));
+      if (!hidden && !prefersReduced) {
+        frame += 1;
+        // Breathing
+        avatar.position.y = Math.sin(frame * 0.015) * 0.02;
+        // Blink every ~3-5s
+        if (frame >= blinkAt) { blinking = 8; blinkAt = frame + 150 + Math.random() * 150; }
+        if (blinking > 0) {
+          blinking -= 1;
+          const t = blinking / 8;
+          const close = Math.sin((1 - t) * Math.PI);
+          for (const lid of lidMeshes) { lid.visible = close > 0.15; lid.scale.y = 0.75 * (1 - close * 0.7); }
+          for (const g of eyeGroups) g.scale.y = 1 - close * 0.85;
+        } else {
+          for (const lid of lidMeshes) lid.visible = false;
+          for (const g of eyeGroups) g.scale.y += (1 - g.scale.y) * 0.3;
+        }
+        // Gaze saccades (attentive, bounded)
+        if (frame >= gazeAt) {
+          gazeAt = frame + 90 + Math.random() * 160;
+          const speaking = s === "speaking";
+          gazeTargetX = (speaking ? 0.02 : 0.06) * (Math.random() * 2 - 1);
+          gazeTargetY = 0.03 * (Math.random() * 2 - 1) + (s === "thinking" ? 0.04 : 0);
+        }
+        gazeX += (gazeTargetX - gazeX) * 0.05;
+        gazeY += (gazeTargetY - gazeY) * 0.05;
+        for (const g of eyeGroups) { g.rotation.y = gazeX * 3; g.rotation.x = -gazeY * 3; }
+        avatar.rotation.y = gazeX * 1.2 + (s === "listening" ? Math.sin(frame * 0.01) * 0.04 : 0);
+        avatar.rotation.x = gazeY * 0.8;
+        // Brows: subtle focus during thinking/verifying
+        const focus = s === "thinking" || s === "verifying" || s === "inspecting" ? 1 : 0;
+        const browL = brows[0];
+        const browR = brows[1];
+        if (browL && browR) {
+          browL.position.y += ((0.82 - focus * 0.02) - browL.position.y) * 0.1;
+          browR.position.y += ((0.82 - focus * 0.02) - browR.position.y) * 0.1;
+        }
+        // Rings: rotate while searching/inspecting/analysing
+        if (s === "searching" || s === "inspecting" || s === "thinking") rings.forEach((r, i) => { r.rotation.z += 0.004 + i * 0.002; });
+        particles.rotation.y += 0.0008;
+        // Jaw / mouth: viseme timeline when speaking, rest otherwise
+        if (s === "speaking") {
+          const v = visemesRef.current;
+          const start = audioStartRef.current;
+          if (v && v.length > 0 && start !== null) {
+            const elapsed = Date.now() - start;
+            const active = v.find((vi) => elapsed >= vi.startMs && elapsed < vi.endMs) ?? (elapsed > (v[v.length - 1]?.endMs ?? 0) ? null : v[v.length - 1]);
+            if (active) {
+              const { jawOpen, mouthWidth } = visemeToMouthState(active.viseme);
+              jaw.position.y = 0.18 - jawOpen * 0.09;
+              mouth.scale.y = Math.max(0.15, jawOpen * 1.6);
+              mouth.scale.x = 1 + (mouthWidth - 0.5) * 0.8;
+              lowerLip.position.y = 0.14 - jawOpen * 0.08;
+            } else {
+              jaw.position.y += (0.18 - jaw.position.y) * 0.2;
+              mouth.scale.y += (0.15 - mouth.scale.y) * 0.2;
+            }
           } else {
-            head.scale.set(1, 1, 1);
+            // Approximate amplitude fallback: driven by real audio level only (labelled in UI)
+            jaw.position.y = 0.18 - lvl * 0.07;
+            mouth.scale.y = Math.max(0.15, lvl * 1.2);
+            lowerLip.position.y = 0.14 - lvl * 0.06;
           }
         } else {
-          const s = 1 + level * 0.06;
-          head.scale.set(1, s, 1);
+          jaw.position.y += (0.18 - jaw.position.y) * 0.15;
+          mouth.scale.y += (0.15 - mouth.scale.y) * 0.15;
+          mouth.scale.x += (1 - mouth.scale.x) * 0.15;
         }
-      } else {
-        head.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-      }
-      // Listening: subtle head orientation
-      if (state === "listening") {
-        head.rotation.y = Math.sin(frame * 0.01) * 0.05;
-      } else {
-        head.rotation.y *= 0.95;
       }
       renderer.render(scene, camera);
-      rafRef.current = requestAnimationFrame(animate);
+      raf = requestAnimationFrame(animate);
     };
     animate();
 
     const onResize = () => {
-      if (!mount) return;
-      camera.aspect = mount.clientWidth / mount.clientHeight;
+      camera.aspect = mount.clientWidth / Math.max(1, mount.clientHeight);
       camera.updateProjectionMatrix();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -139,30 +318,32 @@ export function AidaAvatarStage({ state, level = 0, visemes = null as TimedVisem
     window.addEventListener("resize", onResize);
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("resize", onResize);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      renderer.dispose();
-      headGeo.dispose();
-      headMat.dispose();
-      shoulderGeo.dispose();
-      shoulderMat.dispose();
-      rings.forEach((r) => {
-        (r.geometry as THREE.BufferGeometry).dispose();
-        (r.material as THREE.Material).dispose();
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      cancelAnimationFrame(raf);
+      scene.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.geometry) (mesh.geometry as THREE.BufferGeometry).dispose();
+        const mat = (mesh as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        else if (mat) mat.dispose();
       });
-      pedestalGeo.dispose();
-      pedestalMat.dispose();
-      mount.removeChild(renderer.domElement);
-      sceneRef.current = null;
-      rendererRef.current = null;
+      pGeo.dispose();
+      (particles.material as THREE.Material).dispose();
+      renderer.dispose();
+      if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement);
     };
-  }, [state, level]);
+  }, []);
 
   return (
-    <div ref={mountRef} style={{ width: "100%", height: 380, borderRadius: 16, overflow: "hidden", background: "var(--cmd-surface)", border: "1px solid var(--cmd-line)", position: "relative" }}>
-      <div style={{ position: "absolute", top: 12, right: 12, fontSize: 10, color: "var(--cmd-muted)", letterSpacing: 1 }}>AIDA 3D • {state.toUpperCase()} • synthetic licensed</div>
-      <div style={{ position: "absolute", bottom: 12, left: 12, fontSize: 10, color: "var(--cmd-muted)" }}>Fallback: static poster if WebGL unavailable</div>
+    <div ref={mountRef} style={{ width: "100%", height: 460, borderRadius: 16, overflow: "hidden", background: "radial-gradient(60% 55% at 50% 38%, rgba(31,159,233,0.12), transparent 70%), var(--aida-surface-1, #031423)", border: "1px solid rgba(29,117,181,0.45)", position: "relative" }} role="img" aria-label={`Aida avatar, ${state}`}>
+      <div style={{ position: "absolute", top: 12, right: 12, fontSize: 10, color: "var(--aida-text-muted)", letterSpacing: 1 }}>AIDA 3D • {state.toUpperCase()} • procedural bust — rigged GLB pending</div>
+      {webglFailed ? (
+        <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", padding: 24, textAlign: "center", fontSize: 13, color: "var(--aida-text)" }}>
+          3D Aida is unavailable (WebGL context lost). You can continue with text and voice — full capability remains in the conversation.
+        </div>
+      ) : null}
     </div>
   );
 }

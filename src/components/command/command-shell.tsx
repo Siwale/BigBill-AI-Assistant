@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
-  Activity,
   Bell,
   Box,
   Camera,
@@ -15,9 +14,9 @@ import {
   Menu,
   MessageSquare,
   Mic,
+  MonitorSmartphone,
   Search,
   Settings,
-  Sparkles,
   Square,
   Users,
 } from "lucide-react";
@@ -31,32 +30,50 @@ type Props = {
   companionStatus?: string;
 };
 
+/* Reference top bar: workspace-level destinations (no History/Command duplication). */
 const TOP_NAV = [
-  { href: "/app", label: "Command", exact: true },
-  { href: "/app/history", label: "History" },
+  { href: "/app", label: "Home", exact: true },
   { href: "/app/engineering", label: "Engineer" },
   { href: "/app/repositories", label: "Repositories" },
   { href: "/app/forge", label: "Forge" },
+  { href: "/app/qylon", label: "Qylon" },
   { href: "/app/projects", label: "Projects" },
   { href: "/app/devices", label: "Devices" },
   { href: "/app/media", label: "Media" },
   { href: "/app/vision", label: "Vision" },
 ];
 
+/* Reference left rail: command work areas. History lives in the conversation drawer. */
 const RAIL = [
   { href: "/app", label: "Command", icon: MessageSquare, exact: true },
-  { href: "/app/history", label: "History", icon: Activity },
   { href: "/app/engineering", label: "Engineering", icon: Cpu },
-  { href: "/app/repositories", label: "Repositories", icon: Box },
   { href: "/app/projects", label: "Projects", icon: Layers },
   { href: "/app/meetings", label: "Meetings", icon: Users },
-  { href: "/app/devices", label: "Devices", icon: Search },
+  { href: "/app/devices", label: "Devices", icon: MonitorSmartphone },
   { href: "/app/media", label: "Media", icon: Headphones },
   { href: "/app/vision", label: "Vision", icon: Camera },
+  { href: "/app/repositories", label: "Repositories", icon: Box },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
-export function CommandShell({ assistantName, userName, userEmail: _userEmail, workspaceName, children, companionStatus }: Props) {
+const RAIL_DISABLED = [{ label: "Automation", reason: "Not connected — no automation provider configured" }];
+
+function AidaMark() {
+  return (
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden role="img">
+      <path
+        d="M17 3 L31 29 L24.5 29 L17 13.5 L9.5 29 L3 29 Z"
+        fill="none"
+        stroke="#48C9F4"
+        strokeWidth="2.4"
+        strokeLinejoin="round"
+      />
+      <path d="M12.5 23.5 L21.5 23.5" stroke="#5AD5FB" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function CommandShell({ assistantName, userName, workspaceName, children, companionStatus }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -69,48 +86,21 @@ export function CommandShell({ assistantName, userName, userEmail: _userEmail, w
   }
 
   return (
-    <div className="command-env" style={{ minHeight: "100vh", background: "var(--cmd-bg)", color: "var(--cmd-ink)", display: "flex", flexDirection: "column" }}>
-      {/* Top command bar */}
-      <header
-        style={{
-          height: 56,
-          background: "rgba(2,8,18,0.9)",
-          borderBottom: "1px solid var(--cmd-line)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 16px",
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: "linear-gradient(135deg, #00e5ff, #5eb0ff)", borderRadius: 8, display: "grid", placeItems: "center", color: "#020812", fontWeight: 800 }}>A</div>
+    <div className="aida-cc">
+      <header className="aida-topbar">
+        <div style={{ display: "flex", alignItems: "center", gap: 26 }}>
+          <div className="aida-brand">
+            <AidaMark />
             <div>
-              <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 16 }}>{assistantName.slice(0, 4).toUpperCase()}</div>
-              <div style={{ fontSize: 9, color: "var(--cmd-muted)", letterSpacing: 1, marginTop: -4 }}>AI Executive Assistant</div>
+              <div className="aida-brand-name">{assistantName.slice(0, 4).toUpperCase()}</div>
+              <div className="aida-brand-sub">AI Executive Assistant</div>
             </div>
           </div>
-          <nav style={{ display: "flex", gap: 4 }} className="hide-mobile">
+          <nav className="aida-nav hide-mobile" aria-label="Workspace">
             {TOP_NAV.map((item) => {
               const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    color: active ? "var(--cmd-cyan)" : "var(--cmd-ink-soft)",
-                    background: active ? "rgba(0,229,255,0.12)" : "transparent",
-                    border: active ? "1px solid var(--cmd-line-strong)" : "1px solid transparent",
-                    boxShadow: active ? "0 0 10px rgba(0,229,255,0.2)" : "none",
-                  }}
-                >
+                <Link key={item.href} href={item.href} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>
                   {item.label}
                 </Link>
               );
@@ -118,110 +108,99 @@ export function CommandShell({ assistantName, userName, userEmail: _userEmail, w
           </nav>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 11, color: "var(--cmd-muted)", background: "rgba(0,229,255,0.1)", padding: "4px 8px", borderRadius: 20, border: "1px solid var(--cmd-line)" }}>Loop 4 · Engineering Intelligence</span>
-          <span style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, color: companionStatus === "available" ? "var(--cmd-green)" : "var(--cmd-muted)" }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: companionStatus === "available" ? "var(--cmd-green)" : "var(--cmd-muted)", boxShadow: companionStatus === "available" ? "0 0 8px var(--cmd-green)" : "none" }} /> {workspaceName}
-          </span>
-          <Bell size={16} style={{ color: "var(--cmd-muted)" }} />
-          <Settings size={16} style={{ color: "var(--cmd-muted)" }} />
-          <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--cmd-surface-strong)", display: "grid", placeItems: "center", fontSize: 12, border: "1px solid var(--cmd-line)" }}>{userName.slice(0, 1).toUpperCase()}</div>
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="show-mobile" style={{ background: "transparent", border: "none", color: "var(--cmd-ink)" }}>
+          <span className="aida-loop-badge">Loop 4 — Engineering Intelligence</span>
+          <Bell size={16} style={{ color: "var(--aida-text-muted)" }} aria-label="Notifications" />
+          <Link href="/app/settings" aria-label="Settings" style={{ color: "var(--aida-text-muted)", display: "grid", placeItems: "center" }}>
+            <Settings size={16} />
+          </Link>
+          <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--aida-surface-2)", display: "grid", placeItems: "center", fontSize: 12, border: "1px solid var(--aida-border)", color: "var(--aida-text)" }}>
+            {userName.slice(0, 1).toUpperCase()}
+          </div>
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="show-mobile" style={{ background: "transparent", border: "none", color: "var(--aida-text)" }} aria-label="Menu">
             <Menu size={18} />
           </button>
         </div>
       </header>
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {/* Left vertical command rail */}
-        <aside
-          style={{
-            width: 220,
-            background: "rgba(2,8,18,0.8)",
-            borderRight: "1px solid var(--cmd-line)",
-            padding: 12,
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-          className="hide-mobile"
-        >
+        <aside className="aida-rail hide-mobile" aria-label="Command areas">
           {RAIL.map((item) => {
             const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  color: active ? "var(--cmd-cyan)" : "var(--cmd-ink-soft)",
-                  background: active ? "rgba(0,229,255,0.1)" : "transparent",
-                  borderLeft: active ? "3px solid var(--cmd-cyan)" : "3px solid transparent",
-                  boxShadow: active ? "0 0 12px rgba(0,229,255,0.15)" : "none",
-                  fontSize: 13,
-                  fontWeight: active ? 600 : 400,
-                }}
-              >
+              <Link key={item.href} href={item.href} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>
                 <item.icon size={16} />
                 {item.label}
               </Link>
             );
           })}
-          <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid var(--cmd-line)", fontSize: 11, color: "var(--cmd-muted)" }}>
+          {RAIL_DISABLED.map((item) => (
+            <span
+              key={item.label}
+              title={item.reason}
+              aria-disabled="true"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 12px",
+                borderRadius: 10,
+                color: "var(--aida-text-dim)",
+                fontSize: 13,
+                borderLeft: "3px solid transparent",
+                cursor: "not-allowed",
+              }}
+            >
+              <Settings size={16} />
+              {item.label}
+            </span>
+          ))}
+          <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid var(--aida-border)", fontSize: 11, color: "var(--aida-text-muted)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--cmd-green)" }} /> Aida Online
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--aida-success)" }} /> Aida Online
             </div>
             <div style={{ marginTop: 4 }}>v4.0 (Loop 4)</div>
-            <div>Forge • Local Repos</div>
-            <button onClick={signOut} style={{ marginTop: 8, background: "transparent", border: "1px solid var(--cmd-line)", color: "var(--cmd-ink-soft)", padding: "6px 10px", borderRadius: 8, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            <div>Forge • Local Repos • Qylon</div>
+            <div style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={workspaceName}>{workspaceName}</div>
+            <div style={{ marginTop: 4, fontSize: 10 }}>Companion: {companionStatus ?? "checking"}</div>
+            <button onClick={signOut} style={{ marginTop: 8, background: "transparent", border: "1px solid var(--aida-border)", color: "var(--aida-text)", padding: "6px 10px", borderRadius: 8, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
               <LogOut size={12} /> Sign out
             </button>
           </div>
         </aside>
+        {mobileOpen ? (
+          <nav aria-label="Command areas mobile" style={{ position: "absolute", top: 64, left: 8, zIndex: 60, background: "rgba(3,20,35,0.97)", border: "1px solid var(--aida-border)", borderRadius: 12, padding: 8, display: "flex", flexDirection: "column", gap: 2 }}>
+            {RAIL.map((item) => (
+              <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)} style={{ padding: "8px 12px", color: "var(--aida-text)", fontSize: 13 }}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
 
-        {/* Main stage */}
-        <main style={{ flex: 1, padding: 20, background: "radial-gradient(1200px 600px at 50% -10%, rgba(0,229,255,0.08), transparent), var(--cmd-bg)", overflow: "auto" }}>
-          {children}
-        </main>
+        <main style={{ flex: 1, padding: 20, minWidth: 0, overflow: "auto" }}>{children}</main>
       </div>
 
-      {/* Persistent command/voice dock */}
-      <footer
-        style={{
-          height: 72,
-          background: "rgba(2,8,18,0.95)",
-          borderTop: "1px solid var(--cmd-line)",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "0 16px",
-          position: "sticky",
-          bottom: 0,
-        }}
-      >
-        <button
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 999,
-            background: voiceState === "listening" ? "var(--cmd-red)" : "rgba(0,229,255,0.15)",
-            border: `1px solid ${voiceState === "listening" ? "var(--cmd-red)" : "var(--cmd-line-strong)"}`,
-            display: "grid",
-            placeItems: "center",
-            color: "var(--cmd-cyan)",
+      <footer style={{ padding: "12px 20px 18px", background: "transparent" }}>
+        <form
+          className="aida-composer"
+          role="search"
+          aria-label="Ask Aida"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            const text = String(data.get("q") ?? "").trim();
+            if (!text) return;
+            window.dispatchEvent(new CustomEvent("aida:ask", { detail: { text } }));
           }}
-          aria-label="Voice input"
         >
-          {voiceState === "listening" ? <Square size={16} /> : <Mic size={16} />}
-        </button>
-        <div style={{ flex: 1, background: "var(--cmd-surface)", border: "1px solid var(--cmd-line)", borderRadius: 999, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-          <input placeholder="Ask Aida anything..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--cmd-ink)", fontSize: 14 }} />
-          <Sparkles size={16} style={{ color: "var(--cmd-muted)" }} />
-        </div>
-        <Activity size={18} style={{ color: "var(--cmd-muted)" }} />
+          <button type="button" className="aida-mic" aria-label={voiceState === "listening" ? "Stop listening" : "Voice input (explicit action)"}>
+            {voiceState === "listening" ? <Square size={16} /> : <Mic size={16} />}
+          </button>
+          <input name="q" placeholder="Ask Aida anything…" aria-label="Ask Aida anything" autoComplete="off" />
+          <span className="aida-meta" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Search size={14} />
+          </span>
+        </form>
       </footer>
 
       <style>{`
