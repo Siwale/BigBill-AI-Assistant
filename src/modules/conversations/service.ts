@@ -29,7 +29,7 @@ export async function createConversation(params: {
     .values({
       tenantId: params.tenantId,
       userId: params.userId,
-      title: params.title?.slice(0, 120) || "New conversation",
+      title: params.title?.slice(0, 120) || "Conversation",
       channel: params.channel ?? "text",
     })
     .returning();
@@ -123,8 +123,8 @@ export async function maybeSetTitleFromMessage(
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
     .limit(1);
-  if (conversation[0]?.title !== "New conversation") return;
-  const title = userMessage.replace(/\s+/g, " ").trim().slice(0, 70) || "New conversation";
+  if (conversation[0]?.title !== "New conversation" && conversation[0]?.title !== "Conversation") return;
+  const title = userMessage.replace(/\s+/g, " ").trim().slice(0, 70) || "Conversation";
   await db
     .update(conversations)
     .set({ title })
