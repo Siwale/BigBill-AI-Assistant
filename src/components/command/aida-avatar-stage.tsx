@@ -3,12 +3,18 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { AidaCoreState } from "./aida-core";
+import type { TimedViseme } from "@/modules/voice/viseme";
+import { visemeToMouthState } from "@/modules/voice/viseme";
 
-export function AidaAvatarStage({ state, level = 0 }: { state: AidaCoreState; level?: number }) {
+export function AidaAvatarStage({ state, level = 0, visemes = null as TimedViseme[] | null, audioStartMs = null as number | null }: { state: AidaCoreState; level?: number; visemes?: TimedViseme[] | null; audioStartMs?: number | null }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rafRef = useRef<number | null>(null);
+  const visemesRef = useRef<TimedViseme[] | null>(visemes);
+  const audioStartRef = useRef<number | null>(audioStartMs);
+  useEffect(() => { visemesRef.current = visemes; }, [visemes]);
+  useEffect(() => { audioStartRef.current = audioStartMs; }, [audioStartMs]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -92,10 +98,23 @@ export function AidaAvatarStage({ state, level = 0 }: { state: AidaCoreState; le
       if (state === "searching" || state === "inspecting") {
         rings.forEach((r, i) => (r.rotation.z += 0.005 + i * 0.002));
       }
-      // Speaking viseme approximation: scale jaw (head) with level
+      // Speaking — viseme timeline if available (real provider alignment), else level fallback (labelled approximate)
       if (state === "speaking") {
-        const s = 1 + level * 0.06;
-        head.scale.set(1, s, 1);
+        const v = visemesRef.current;
+        const start = audioStartRef.current;
+        if (v && start !== null) {
+          const elapsed = Date.now() - start;
+          const active = v.find((vis) => elapsed >= vis.startMs && elapsed < vis.endMs) ?? v[v.length - 1];
+          if (active) {
+            const { jawOpen } = visemeToMouthState(active.viseme);
+            head.scale.set(1, 1 + jawOpen * 0.12, 1);
+          } else {
+            head.scale.set(1, 1, 1);
+          }
+        } else {
+          const s = 1 + level * 0.06;
+          head.scale.set(1, s, 1);
+        }
       } else {
         head.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
       }
