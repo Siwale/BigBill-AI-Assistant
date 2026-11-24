@@ -43,6 +43,13 @@
       "when": 1795547779696,
       "tag": "0005_late_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795549428464,
+      "tag": "0006_smooth_blur",
+      "breakpoints": true
     }
   ]
 }

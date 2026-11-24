@@ -71,6 +71,31 @@ export const assistantProfiles = pgTable(
   (t) => [uniqueIndex("assistant_profiles_tenant_uq").on(t.tenantId)],
 );
 
+export const userAssistantConfigs = pgTable(
+  "user_assistant_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    displayName: text("display_name"),
+    pronouns: text("pronouns"),
+    gender: text("gender"),
+    presentation: text("presentation"),
+    personaDescription: text("persona_description"),
+    voiceProvider: text("voice_provider"),
+    voiceId: text("voice_id"),
+    voiceLocale: text("voice_locale"),
+    voiceRate: integer("voice_rate"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("user_assistant_configs_tenant_user_uq").on(t.tenantId, t.userId)],
+);
+
 export const conversations = pgTable(
   "conversations",
   {
@@ -780,3 +805,4 @@ export type EngineeringRepository = typeof engineeringRepositories.$inferSelect;
 export type EngineeringAudit = typeof engineeringAudits.$inferSelect;
 export type EngineeringAuditEvent = typeof engineeringAuditEvents.$inferSelect;
 export type EngineeringFinding = typeof engineeringFindings.$inferSelect;
+export type UserAssistantConfig = typeof userAssistantConfigs.$inferSelect;
