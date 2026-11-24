@@ -65,6 +65,32 @@ describe("Loop 4 reference accuracy", () => {
     }
   });
 
+  it("cream placeholder fixed at source: visualizer is dark glass", () => {
+    const viz = src("src/components/voice/audio-visualizer.tsx");
+    expect(viz).not.toContain("var(--surface-2)");
+    expect(viz).not.toContain("var(--line)");
+    expect(viz).toContain("rgba(3,20,35,0.9)");
+  });
+
+  it("rail has no duplicated Repositories and uses a proportional track", () => {
+    const shell = src("src/components/command/command-shell.tsx");
+    const railBlock = shell.slice(shell.indexOf("const RAIL ="), shell.indexOf("const RAIL_DISABLED"));
+    expect(railBlock).not.toContain("Repositories");
+    expect(shell).toContain('href: "/app/repositories"'); // top nav keeps it as a workspace destination
+    const css = src("src/app/globals.css");
+    expect(css).toContain("clamp(96px, 9.45vw, 158px)");
+  });
+
+  it("ASR uses the configured assistant name as a vocabulary hint", () => {
+    const chat = src("src/components/chat/chat-workspace.tsx");
+    expect(chat).toContain("SpeechGrammarList");
+    expect(chat).toContain("assistantName");
+    const model = src("src/modules/assistant/model.ts");
+    expect(model).toContain("vocabularyHint");
+    const route = src("src/app/api/voice/transcribe/route.ts");
+    expect(route).toContain("vocabularyHint");
+  });
+
   it("model errors carry status/code for server-side diagnosis", () => {
     const model = src("src/modules/assistant/model.ts");
     expect(model).toContain("status?: number");

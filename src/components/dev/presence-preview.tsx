@@ -9,6 +9,27 @@ type Step = { state: AidaCoreState; label: string; note: string; speak?: boolean
 
 const FIXTURE_LINE = "Presence preview. My expressions follow the real assistant state.";
 
+/* Deterministic engineering demo fixture. Every value is synthetic, fixed and
+   labelled DEMO — it never touches production audits, repos or findings. */
+const DEMO_BASE_MS = Date.UTC(2026, 10, 25, 12, 0, 0);
+const DEMO_STAGES = [
+  { id: "REQUEST", label: "Received request", atSec: 0, event: "Received demo request (DEMO)" },
+  { id: "CONNECT", label: "Connected to local engineering companion", atSec: 8, event: "Connected to demo companion sandbox (DEMO)" },
+  { id: "INIT", label: "Initialising Forge", atSec: 16, event: "Initialised demo Forge adapter (DEMO)" },
+  { id: "MAP", label: "Analysing repository", atSec: 24, event: "Mapped demo-repository structure (DEMO)" },
+  { id: "VERIFY", label: "Verifying findings", atSec: 32, event: "Verified 3 demo findings against fixture evidence (DEMO)" },
+  { id: "EVIDENCE", label: "Building evidence", atSec: 40, event: "Built demo evidence bundle (DEMO)" },
+  { id: "REPORT", label: "Composing report", atSec: 48, event: "Composed demo report (DEMO)" },
+] as const;
+const DEMO_FINDINGS = [
+  { id: "P0", count: 1, label: "Critical (demo fixture)" },
+  { id: "P1", count: 1, label: "High (demo fixture)" },
+  { id: "P2", count: 1, label: "Medium (demo fixture)" },
+] as const;
+function demoClock(sec: number): string {
+  return new Date(DEMO_BASE_MS + sec * 1000).toISOString().slice(11, 19);
+}
+
 const SCRIPT: Step[] = [
   { state: "idle", label: "Idle", note: "Relaxed neutral face, occasional blink, gentle breathing." },
   { state: "listening", label: "Listening", note: "Attentive eyes, slight head orientation, lips at rest." },
@@ -26,13 +47,38 @@ export function PresencePreview() {
   const [level] = useState(0);
   const [visemes, setVisemes] = useState<TimedViseme[] | null>(null);
   const [audioStartMs, setAudioStartMs] = useState<number | null>(null);
+  const [demoStep, setDemoStep] = useState(0);
+  const [demoPlaying, setDemoPlaying] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const step = SCRIPT[index] ?? SCRIPT[0]!;
 
   function clearTimer() {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
   }
+
+  // Deterministic demo scenario: fixed fixture steps, fixed clock, no provider/tool calls.
+  useEffect(() => {
+    if (!demoPlaying) {
+      if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+      demoTimerRef.current = null;
+      return;
+    }
+    demoTimerRef.current = setTimeout(() => {
+      setDemoStep((s) => {
+        if (s + 1 >= DEMO_STAGES.length) {
+          setDemoPlaying(false);
+          return s;
+        }
+        return s + 1;
+      });
+    }, 1500);
+    return () => {
+      if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
+      demoTimerRef.current = null;
+    };
+  }, [demoPlaying, demoStep]);
 
   function runStep(i: number) {
     const s = SCRIPT[i];
@@ -82,6 +128,7 @@ export function PresencePreview() {
 
   useEffect(() => () => {
     clearTimer();
+    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
     try { window.speechSynthesis?.cancel(); } catch { /* noop */ }
   }, []);
 
@@ -126,6 +173,65 @@ export function PresencePreview() {
             ))}
           </ol>
           <p className="aida-meta">Fixture line: “{FIXTURE_LINE}” Viseme schedule is heuristic and labelled approximate — not provider phoneme alignment.</p>
+        </div>
+      </div>
+
+      {/* Deterministic engineering demo: fixed fixture, fixed clock, DEMO marks everywhere. */}
+      <div className="aida-panel" style={{ padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h3 className="aida-panel-title">Deterministic engineering demo</h3>
+          <span style={{ fontSize: 10, background: "var(--aida-amber)", color: "#020812", padding: "2px 8px", borderRadius: 20, fontWeight: 800 }}>DEMO — NOT LIVE</span>
+        </div>
+        <p className="aida-meta" style={{ marginTop: 6 }}>
+          Fixed script on fixture repo <strong>demo-repository</strong> (branch main, commit <span className="mono">demo0000</span>).
+          No provider calls, no shell execution, no production writes. Timestamps are a fixed clock for repeatable screenshots.
+        </p>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => { setDemoStep(0); setDemoPlaying(true); }}>{demoPlaying ? "Playing…" : "Play demo"}</button>
+          <button type="button" className="btn btn-sm" onClick={() => setDemoPlaying(!demoPlaying)}>{demoPlaying ? "Pause" : "Resume"}</button>
+          <button type="button" className="btn btn-sm" onClick={() => { setDemoPlaying(false); setDemoStep((s) => Math.min(s + 1, DEMO_STAGES.length - 1)); }}>Step ▸</button>
+          <button type="button" className="btn btn-sm" onClick={() => { setDemoPlaying(false); setDemoStep(0); }}>Reset</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginTop: 12 }}>
+          <div>
+            <div className="aida-meta" style={{ marginBottom: 6 }}>Demo timeline (fixed clock)</div>
+            <ol className="aida-timeline">
+              {DEMO_STAGES.map((s, i) => (
+                <li key={s.id}>
+                  <span className={`aida-dot${i < demoStep ? " done" : i === demoStep ? " active" : ""}`}>{i < demoStep ? "✓" : i === demoStep ? "●" : ""}</span>
+                  <span style={{ color: i === demoStep ? "var(--aida-cyan-4)" : "var(--aida-text-muted)" }}>{demoClock(s.atSec)} · {s.label}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div>
+            <div className="aida-meta" style={{ marginBottom: 6 }}>Demo live activity (fixture)</div>
+            <div className="aida-feed">
+              {DEMO_STAGES.slice(0, demoStep + 1).map((s) => (
+                <div className="aida-feed-row" key={s.id}>
+                  <time>{demoClock(s.atSec)}</time>
+                  <span>&gt; {s.event}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="aida-meta" style={{ marginBottom: 6 }}>Demo findings (fixture)</div>
+            {demoStep >= 4 ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                {DEMO_FINDINGS.map((f) => (
+                  <div className="aida-finding" key={f.id} aria-label={`Demo finding ${f.id}`}>
+                    <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                      <span className="aida-sev" style={{ background: "var(--aida-amber)" }}>{f.id}</span>
+                      <span>{f.count} · {f.label}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="aida-meta">Findings appear at the verify step — fixture only, never production data.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -150,15 +150,19 @@ export function safeTtsVoice(voiceId: string | undefined): string {
   return voiceId && ALLOWED_TTS_VOICES.has(voiceId) ? voiceId : "alloy";
 }
 
-export async function transcribeAudio(file: File, language?: string): Promise<string> {
+export async function transcribeAudio(file: File, language?: string, vocabularyHint?: string): Promise<string> {
   const env = getEnv();
   if (!env.OPENAI_API_KEY) throw new ModelError("unconfigured", "Server speech transcription is not configured.");
   try {
     const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 60_000, maxRetries: 1 });
+    const hint = (vocabularyHint ?? "").trim().slice(0, 200);
     const result = await openai.audio.transcriptions.create({
       file,
       model: env.OPENAI_STT_MODEL,
       ...(language ? { language } : {}),
+      // Vocabulary/style hint so proper nouns (assistant name, product names) survive transcription.
+      // This guides spelling of uncommon words; the audio remains the source of truth.
+      ...(hint ? { prompt: hint } : {}),
     });
     return result.text.trim();
   } catch (error) {

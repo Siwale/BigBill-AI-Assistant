@@ -22,7 +22,12 @@ export async function POST(request: Request) {
     if (file.size > 15_000_000) throw new ApiError(413, "Audio clip is too large.", "audio_too_large");
     const language = String(form.get("language") ?? "").trim() || undefined;
 
-    const text = await transcribeAudio(file, language);
+    // Server-composed vocabulary hint (assistant + product names) so the ASR model
+    // prefers "Aida" over homophones like "Ida". Built server-side from the
+    // session profile — never from client input.
+    const assistantName = session.profile.displayName?.trim();
+    const vocabularyHint = `Assistant name: ${assistantName || "Aida"}. Product names: Aida, BigBill, Forge, Qylon.`;
+    const text = await transcribeAudio(file, language, vocabularyHint);
     if (!text) throw new ApiError(422, "No speech was recognised. Please try again.", "no_speech");
     return NextResponse.json({ text });
   } catch (error) {
