@@ -19,6 +19,7 @@ import {
 import { AudioVisualizer } from "@/components/voice/audio-visualizer";
 import { ThemeSwitcher } from "@/components/theme/theme-provider";
 import { useRealtimeVoice } from "@/components/voice/realtime-webrtc";
+import { useLiveVoice } from "@/components/voice/live-webrtc";
 
 type Citation = { sourceId: string; title: string; chunkIndex: number; source?: string };
 type PermissionRequest = { connectorId: string; connectorName: string; scopes: string[] };
@@ -237,6 +238,102 @@ export function ChatWorkspace({
     return () => navigator.mediaDevices?.removeEventListener?.("devicechange", handler);
   }, [resolveDevicePrefs]);
 
+  const [liveEnabled, setLiveEnabled] = useState(false);
+  const [liveCaption, setLiveCaption] = useState<{ input: string; output: string }>({ input: "", output: "" });
+  const liveInputRef = useRef("");
+  const liveOutputRef = useRef("");
+
+  const live = useLiveVoice({
+    selectedInputId: devicePrefs.inputId,
+    selectedOutputId: devicePrefs.outputId,
+    conversationId: conversationIdRef.current,
+    onInputDelta: (delta) => {
+      liveInputRef.current += delta;
+      setLiveCaption((prev) => ({ ...prev, input: liveInputRef.current.slice(-500) }));
+      setTranscript(liveInputRef.current.slice(-500));
+    },
+    onInputFinal: (text) => {
+      liveInputRef.current = "";
+      setLiveCaption((prev) => ({ ...prev, input: "" }));
+      // Persist as single user message (channel live) without duplicate model call
+      void sendMessage(text, "voice");
+    },
+    onOutputDelta: (delta) => {
+      liveOutputRef.current += delta;
+      setLiveCaption((prev) => ({ ...prev, output: liveOutputRef.current.slice(-800) }));
+    },
+    onOutputFinal: (text) => {
+      liveOutputRef.current = "";
+      setLiveCaption((prev) => ({ ...prev, output: "" }));
+      // Live assistant transcript: persist once as assistant message via same conversation
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `live-assistant-${Date.now()}`,
+          role: "assistant",
+          content: text,
+          channel: "live",
+          citations: [],
+          toolActivity: [],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setVoiceState("listening");
+    },
+    onStateChange: (state, msg) => {
+      if (state === "connected" || state === "listening" || state === "duplex" || state === "speaking") {
+        setVoiceState(state === "duplex" ? "listening" : (state as VoiceState));
+        if (state === "duplex") setAudioLevel(0.7);
+      } else if (state === "interrupted") {
+        setVoiceState("listening");
+        setTranscript("Interrupted — listening");
+        setTimeout(() => setTranscript(""), 1500);
+      } else if (state === "error") {
+        setVoiceError(msg ?? "Live error");
+        setVoiceState("error");
+      } else if (state === "disconnected") {
+        setVoiceState("idle");
+        setLiveEnabled(false);
+      }
+    },
+    onStream: (stream, kind) => {
+      if (kind === "input") {
+        if (!stream) {
+          stopMicLevel();
+          return;
+        }
+        try {
+          if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
+          if (micAudioContextRef.current) {
+            void micAudioContextRef.current.close().catch(() => undefined);
+            micAudioContextRef.current = null;
+          }
+          micAnalyserRef.current = null;
+          const ac = new AudioContext();
+          micAudioContextRef.current = ac;
+          if (ac.state === "suspended") void ac.resume().catch(() => undefined);
+          const source = ac.createMediaStreamSource(stream);
+          const analyser = ac.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          micAnalyserRef.current = analyser;
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          const tick = () => {
+            if (!micAnalyserRef.current) return;
+            micAnalyserRef.current.getByteFrequencyData(data);
+            const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
+            setAudioLevel(avg);
+            micRafRef.current = requestAnimationFrame(tick);
+          };
+          tick();
+        } catch {}
+      } else if (kind === "output") {
+        // Output level handled via playback analyser if available, else system default
+        if (!stream) setAudioLevel(0);
+      }
+    },
+  });
+
   const realtime = useRealtimeVoice({
     selectedInputId: devicePrefs.inputId,
     selectedOutputId: devicePrefs.outputId,
@@ -245,7 +342,6 @@ export function ChatWorkspace({
         stopMicLevel();
         return;
       }
-      // Single mic stream: attach AnalyserNode for honest visualizer, no second getUserMedia
       try {
         if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
         if (micAudioContextRef.current) {
@@ -422,6 +518,7 @@ export function ChatWorkspace({
         }
       }
       realtime.disconnect();
+      live.disconnect();
       const synth = getSynthesis();
       if (synth) synth.cancel();
     };
@@ -909,6 +1006,22 @@ export function ChatWorkspace({
     const text = input;
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (liveEnabled && text.trim()) {
+      live.sendText(text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `live-user-${Date.now()}`,
+          role: "user",
+          content: text,
+          channel: "live",
+          citations: [],
+          toolActivity: [],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
     void sendMessage(text, "text");
   }
 
@@ -1042,6 +1155,41 @@ export function ChatWorkspace({
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <ThemeSwitcher small />
             <button
+              className={`btn btn-sm ${liveEnabled ? "btn-primary" : ""}`}
+              type="button"
+              onClick={async () => {
+                if (liveEnabled) {
+                  live.disconnect();
+                  setLiveEnabled(false);
+                  setVoiceState("idle");
+                } else {
+                  const id = conversationIdRef.current || (await ensureConversationForVoice());
+                  if (!id) return;
+                  setLiveEnabled(true);
+                  const ok = await live.connect();
+                  if (!ok) {
+                    setLiveEnabled(false);
+                    // Fallback to Realtime if Live not available
+                    setRealtimeEnabled(true);
+                    await realtime.connect(id);
+                  }
+                }
+              }}
+              title={liveEnabled ? "Live connected — full-duplex, barge-in ready" : "Start live conversation (GPT-Live full-duplex)"}
+            >
+              {liveEnabled ? "Live ●" : "Start live conversation"}
+            </button>
+            {liveEnabled ? (
+              <button className="btn btn-sm" type="button" onClick={() => live.setMuted(true)} title="Mute microphone (keep session)">
+                Mute
+              </button>
+            ) : null}
+            {liveEnabled ? (
+              <button className="btn btn-sm" type="button" onClick={() => live.setMuted(false)} title="Unmute">
+                Unmute
+              </button>
+            ) : null}
+            <button
               className={`btn btn-sm ${realtimeEnabled ? "btn-primary" : ""}`}
               type="button"
               onClick={async () => {
@@ -1056,7 +1204,7 @@ export function ChatWorkspace({
                   await realtime.connect(id);
                 }
               }}
-              title={realtimeEnabled ? "Realtime connected — click to disconnect" : "Connect Realtime voice (WebRTC)"}
+              title={realtimeEnabled ? "Realtime connected" : "Realtime fallback (record/transcribe)"}
             >
               {realtimeEnabled ? "Realtime on" : "Realtime"}
             </button>
@@ -1206,8 +1354,15 @@ export function ChatWorkspace({
             </div>
           ) : null}
           <div style={{ maxWidth: 760, margin: "0 auto 10px" }}>
-            <AudioVisualizer audioState={voiceState} level={audioLevel} />
+            <AudioVisualizer audioState={liveEnabled ? "duplex" : voiceState} level={audioLevel} />
           </div>
+          {liveEnabled ? (
+            <div className="banner info" style={{ maxWidth: 760, margin: "0 auto 10px", fontSize: 13 }}>
+              <div><strong>You:</strong> {liveCaption.input || <span className="tiny muted">listening…</span>}</div>
+              <div><strong>Aida:</strong> {liveCaption.output || <span className="tiny muted">—</span>}</div>
+              <div className="tiny muted">Full-duplex • barge-in: speak to interrupt • typed messages stay in same conversation</div>
+            </div>
+          ) : null}
           {voiceState !== "idle" || voiceError ? (
             <div className={voiceClass} role="status" aria-live="polite">
               <span className="voice-indicator">
