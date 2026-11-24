@@ -104,6 +104,58 @@ export const CONNECTORS: ConnectorDefinition[] = [
       { id: "mothertracker.read", label: "Read fleet data", description: "Would read authorised fleet summaries.", risk: "R1", enabled: false },
     ],
   },
+  {
+    id: "vision",
+    name: "Vision",
+    description: "Camera, screen share and document observation — user-initiated only, transient by default.",
+    state: "available",
+    stateNote: "Available. Requires explicit camera/screen permission per request.",
+    scopes: [
+      { id: "vision.capture", label: "Capture observation", description: "Create a camera/screen/upload observation and analyze it.", risk: "R2", enabled: true },
+      { id: "vision.session", label: "Bounded visual session", description: "Start a time-limited visual sampling session.", risk: "R2", enabled: true },
+    ],
+  },
+  {
+    id: "devices",
+    name: "Personal Devices",
+    description: "Local device discovery, pairing and audio routing via browser and optional companion.",
+    state: "available",
+    stateNote: "Browser capabilities + optional Linux companion (BlueZ/PipeWire).",
+    scopes: [
+      { id: "devices.read", label: "Read devices", description: "List discovered devices and capabilities.", risk: "R1", enabled: true },
+      { id: "devices.connect", label: "Connect device", description: "Pair/connect/select an audio output or device.", risk: "R2", enabled: true },
+    ],
+  },
+  {
+    id: "music",
+    name: "Music",
+    description: "Local library and Home Assistant media — Spotify voice blocked, Apple Music gated.",
+    state: "available",
+    stateNote: "Local + Home Assistant first. Spotify/Apple require approval.",
+    scopes: [
+      { id: "music.read", label: "Read music", description: "Search catalog and list favorites.", risk: "R1", enabled: true },
+      { id: "music.play", label: "Control playback", description: "Play/pause/volume on permitted targets.", risk: "R2", enabled: true },
+    ],
+  },
+  {
+    id: "movies",
+    name: "Movies",
+    description: "Discovery, taste preferences and watchlist — legal availability only when licensed.",
+    state: "available",
+    stateNote: "Manual watchlist + handoff until TMDB/JustWatch licensed for ZM.",
+    scopes: [
+      { id: "movies.read", label: "Read movies", description: "Search and recommend titles.", risk: "R1", enabled: true },
+      { id: "movies.write", label: "Manage watchlist", description: "Add/remove titles and set preferences.", risk: "R2", enabled: true },
+    ],
+  },
+  {
+    id: "home_assistant",
+    name: "Home Assistant",
+    description: "Optional local hub for media_player, camera and sensor state.",
+    state: "needs_credentials",
+    stateNote: "Not connected. Requires OAuth to user instance.",
+    scopes: [{ id: "home_assistant.read", label: "Read HA entities", description: "Read entity state.", risk: "R1", enabled: false }],
+  },
 ];
 
 export const DEFAULT_ONBOARDING_SCOPES = [
