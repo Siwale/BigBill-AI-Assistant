@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { observations } from "@/db/schema";
+import { conversations, observations } from "@/db/schema";
 import type { Observation } from "@/db/schema";
 import { ApiError } from "@/lib/http";
 import { recordAudit } from "@/modules/audit/service";
@@ -60,6 +60,15 @@ export async function createObservation(params: {
     } catch {
       analysis = null;
     }
+  }
+
+  if (params.conversationId) {
+    const conv = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(and(eq(conversations.id, params.conversationId), eq(conversations.tenantId, params.tenantId)))
+      .limit(1);
+    if (!conv[0]) throw new ApiError(404, "Conversation not found for this tenant.", "conversation_not_found");
   }
 
   const [row] = await db

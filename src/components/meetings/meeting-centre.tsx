@@ -39,6 +39,8 @@ export function MeetingCentre() {
   const [newText, setNewText] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [companionStream, setCompanionStream] = useState<MediaStream | null>(null);
+  const [companionError, setCompanionError] = useState("");
 
   const load = async () => {
     const res = await fetch("/api/meetings");
@@ -73,18 +75,12 @@ export function MeetingCentre() {
     setSelected(m);
     setSegments([]);
     setCandidates([]);
-    const [sRes] = await Promise.all([
+    const [sRes, cRes] = await Promise.all([
       fetch(`/api/meetings/${m.id}/segments`).then((r) => r.json() as Promise<{ segments?: Segment[] }>),
+      fetch(`/api/meetings/${m.id}/candidates`).then((r) => r.json() as Promise<{ candidates?: Candidate[] }>).catch(() => ({ candidates: [] as Candidate[] })),
     ]);
     if (sRes.segments) setSegments(sRes.segments);
-    // also load candidates if any
-    try {
-      const cRes = await fetch(`/api/meetings/${m.id}/extract`, { method: "POST" }).catch(() => null);
-      // don't auto-extract; just keep existing candidates if already there
-      void cRes;
-    } catch {
-      // ignore
-    }
+    if (cRes.candidates) setCandidates(cRes.candidates);
   };
 
   const addSegment = async () => {
@@ -151,6 +147,68 @@ export function MeetingCentre() {
             <p className="tiny muted">Media: {c.mediaSource}</p>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <h3 className="section-title">Browser companion (honest live fallback)</h3>
+        <p className="tiny muted">Join your Zoom/Meet call normally, then share the meeting tab/window here. The app receives only what you explicitly share; tab audio is Chromium-supported and may be unavailable in Firefox.</p>
+        {companionError ? <div className="error" role="alert">{companionError}</div> : null}
+        <div className="row" style={{ marginTop: 8 }}>
+          {!companionStream ? (
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={async () => {
+                setCompanionError("");
+                try {
+                  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true } as DisplayMediaStreamOptions);
+                  setCompanionStream(stream);
+                  stream.getVideoTracks().forEach((t) => {
+                    t.onended = () => setCompanionStream(null);
+                  });
+                  stream.getAudioTracks().forEach((t) => {
+                    t.onended = () => setCompanionError("Audio track ended.");
+                  });
+                } catch (e) {
+                  const err = e as DOMException;
+                  if (err.name === "NotAllowedError") setCompanionError("Share cancelled or permission denied.");
+                  else setCompanionError(`Companion failed: ${err.message || err.name}. Tab audio may not be supported in this browser.`);
+                }
+              }}
+            >
+              Start companion — share meeting tab
+            </button>
+          ) : (
+            <button
+              className="btn btn-sm btn-danger"
+              type="button"
+              onClick={() => {
+                companionStream.getTracks().forEach((t) => t.stop());
+                setCompanionStream(null);
+              }}
+            >
+              Stop companion
+            </button>
+          )}
+          <span className={`badge ${companionStream ? "badge-green" : "badge-muted"}`}>{companionStream ? "capturing" : "not capturing"}</span>
+        </div>
+        {companionStream ? (
+          <div style={{ marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+            <video
+              ref={(el) => {
+                if (el && companionStream) {
+                  el.srcObject = companionStream;
+                  void el.play().catch(() => undefined);
+                }
+              }}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: "100%", maxHeight: 240, objectFit: "contain", background: "#060e0b" }}
+            />
+            <p className="tiny muted" style={{ padding: 6 }}>Preview of the shared source. Only this media is available to the assistant. Stop to end capture. Audio tracks: {companionStream.getAudioTracks().length} (0 means tab audio was not shared — use manual transcript entry below).</p>
+          </div>
+        ) : null}
       </div>
 
       {error ? <div className="error" role="alert">{error}</div> : null}

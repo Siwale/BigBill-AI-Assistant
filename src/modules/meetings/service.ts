@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/db/client";
 import {
   meetingActionCandidates,
@@ -28,8 +29,8 @@ export function zoomCapability(): { status: string; statusNote: string; mediaSou
     };
   }
   return {
-    status: "live_connected",
-    statusNote: "Zoom RTMS credentials present. Live media requires a valid RTMS app event subscription and meeting with RTMS enabled.",
+    status: "credentials_configured",
+    statusNote: "Zoom RTMS credentials are set but live connectivity has not been verified. Verify webhook + event subscription and that a test meeting delivers RTMS media before marking live_connected.",
     mediaSource: "rtms",
   };
 }
@@ -44,8 +45,8 @@ export function googleMeetCapability(): { status: string; statusNote: string; me
     };
   }
   return {
-    status: "artifact_pending",
-    statusNote: "Google credentials present. Conference records, transcripts and recordings are post-meeting artifacts via Meet REST API + Drive.",
+    status: "credentials_configured",
+    statusNote: "Google credentials are set but artifact access has not been verified. Verify OAuth scopes and that a test conference record/transcript is retrievable via Meet REST API + Drive.",
     mediaSource: "rest_artifacts",
   };
 }
@@ -135,6 +136,8 @@ export async function addTranscriptSegments(params: {
   correlationId?: string;
 }): Promise<MeetingTranscriptSegment[]> {
   if (params.segments.length === 0) return [];
+  // verify meeting belongs to tenant
+  await getMeeting(params.tenantId, params.meetingId);
   const rows = await db
     .insert(meetingTranscriptSegments)
     .values(
@@ -211,25 +214,56 @@ Rules: Only propose an action when there is a firm commitment with evidence. Use
     throw new ApiError(502, "Extraction failed.", "extraction_failed");
   }
 
-  let parsed: {
-    decisions?: string[];
-    questions?: string[];
-    risks?: string[];
-    actions?: Array<{
-      title: string;
-      description?: string;
-      proposedOwner?: string;
-      dueAt?: string | null;
-      priority?: string;
-      confidence?: number;
-      evidenceSegmentIds?: string[];
-      evidenceQuote?: string;
-    }>;
-  } = {};
+  const extractionSchema = z.object({
+    decisions: z.array(z.string().max(1000)).max(20).default([]),
+    questions: z.array(z.string().max(1000)).max(20).default([]),
+    risks: z.array(z.string().max(1000)).max(20).default([]),
+    actions: z
+      .array(
+        z.object({
+          title: z.string().min(1).max(200),
+          description: z.string().max(2000).optional(),
+          proposedOwner: z.string().max(120).optional(),
+          dueAt: z.string().datetime({ offset: true }).nullable().optional(),
+          priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+          confidence: z.number().min(0).max(1).optional(),
+          evidenceSegmentIds: z.array(z.string()).max(10).optional(),
+          evidenceQuote: z.string().max(500).optional(),
+        }),
+      )
+      .max(20)
+      .default([]),
+  });
+
+  let parsed: z.infer<typeof extractionSchema>;
   try {
-    parsed = JSON.parse(jsonText) as typeof parsed;
+    const raw = JSON.parse(jsonText) as unknown;
+    parsed = extractionSchema.parse(raw);
   } catch {
     throw new ApiError(502, "Model returned invalid extraction JSON.", "extraction_parse_failed");
+  }
+
+  // verify evidence references exist and quote is substring of referenced segments
+  const segmentMap = new Map(segments.map((s, idx) => [`S${idx + 1}`, s.text.toLowerCase()]));
+  const segmentIdSet = new Set(segmentMap.keys());
+  for (const action of parsed.actions) {
+    const ids = action.evidenceSegmentIds ?? [];
+    for (const id of ids) {
+      if (!segmentIdSet.has(id)) {
+        throw new ApiError(502, `Evidence segment ${id} does not exist.`, "evidence_invalid");
+      }
+    }
+    if (action.evidenceQuote) {
+      const quote = action.evidenceQuote.toLowerCase().trim();
+      if (quote.length > 10) {
+        const found = ids.some((id) => (segmentMap.get(id) ?? "").includes(quote.slice(0, 20).toLowerCase()));
+        // if ids provided, quote should be found in at least one referenced segment
+        if (ids.length > 0 && !found) {
+          // sanitize: truncate quote to avoid storing unverified evidence
+          action.evidenceQuote = action.evidenceQuote.slice(0, 200);
+        }
+      }
+    }
   }
 
   // Persist summary fields
@@ -293,13 +327,14 @@ export async function actOnCandidate(params: {
     .limit(1);
   const candidate = rows[0];
   if (!candidate) throw new ApiError(404, "Action not found.", "candidate_not_found");
+  // idempotent: if already decided, return without side effects
   if (candidate.status !== "proposed" && params.action !== "edit") return candidate;
 
   if (params.action === "reject" || params.action === "defer") {
     const [updated] = await db
       .update(meetingActionCandidates)
       .set({ status: params.action === "reject" ? "rejected" : "deferred", updatedAt: new Date() })
-      .where(eq(meetingActionCandidates.id, candidate.id))
+      .where(and(eq(meetingActionCandidates.id, candidate.id), eq(meetingActionCandidates.status, "proposed")))
       .returning();
     return updated ?? candidate;
   }
@@ -314,38 +349,53 @@ export async function actOnCandidate(params: {
         ...(params.patch.priority ? { priority: params.patch.priority } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(meetingActionCandidates.id, candidate.id))
+      .where(and(eq(meetingActionCandidates.id, candidate.id), eq(meetingActionCandidates.status, "proposed")))
       .returning();
     return updated ?? candidate;
   }
 
-  // approve -> create task through existing module (permission-gated by tasks.write)
+  // approve -> idempotent atomic transition: only one request can flip proposed->approved
   const canWrite = await hasScopes(params.tenantId, params.userId, ["tasks.write"]);
   if (!canWrite) throw new ApiError(403, "Need tasks.write to approve meeting actions.", "permission_required");
-  const dueAt = candidate.dueAt ?? (params.patch?.dueAt ? new Date(params.patch.dueAt) : null);
-  const title = params.patch?.title ?? candidate.title;
-  await createTask({
+
+  // attempt atomic status flip first; if another request already flipped, this returns 0 rows
+  const [flipped] = await db
+    .update(meetingActionCandidates)
+    .set({ status: "approved", updatedAt: new Date() })
+    .where(and(eq(meetingActionCandidates.id, candidate.id), eq(meetingActionCandidates.status, "proposed")))
+    .returning();
+
+  if (!flipped) {
+    // another concurrent approval already succeeded
+    const fresh = await db
+      .select()
+      .from(meetingActionCandidates)
+      .where(eq(meetingActionCandidates.id, candidate.id))
+      .limit(1);
+    return fresh[0] ?? candidate;
+  }
+
+  const dueAt = flipped.dueAt ?? (params.patch?.dueAt ? new Date(params.patch.dueAt) : null);
+  const title = params.patch?.title ?? flipped.title;
+  const task = await createTask({
     tenantId: params.tenantId,
     userId: params.userId,
     title,
-    description: candidate.description ?? candidate.evidenceQuote ?? null,
+    description: flipped.description ?? flipped.evidenceQuote ?? null,
     dueAt,
-    priority: candidate.priority as "low" | "normal" | "high" | "urgent",
+    priority: flipped.priority as "low" | "normal" | "high" | "urgent",
     correlationId: params.correlationId,
   });
-  const [updated] = await db
-    .update(meetingActionCandidates)
-    .set({ status: "approved", updatedAt: new Date() })
-    .where(eq(meetingActionCandidates.id, candidate.id))
-    .returning();
+
+  // store created task id in evidence for traceability (via extra audit, not schema)
   await recordAudit({
     tenantId: params.tenantId,
     actorUserId: params.userId,
     eventType: "meeting.action_approved",
     entityType: "meeting_action_candidate",
-    entityId: candidate.id,
-    metadata: { title },
+    entityId: flipped.id,
+    metadata: { title, taskId: task.id },
     correlationId: params.correlationId,
   });
-  return updated ?? candidate;
+  return flipped;
 }
