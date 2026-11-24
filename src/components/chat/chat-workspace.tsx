@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -186,6 +187,7 @@ export function ChatWorkspace({
   const [transcript, setTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const [granting, setGranting] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const conversationIdRef = useRef<string | null>(activeConversationId);
   const voiceModeRef = useRef(false);
@@ -201,6 +203,13 @@ export function ChatWorkspace({
   const voiceSessionRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const micAudioContextRef = useRef<AudioContext | null>(null);
+  const micRafRef = useRef<number | null>(null);
+  const micLevelStreamRef = useRef<MediaStream | null>(null);
+  const playbackAnalyserRef = useRef<AnalyserNode | null>(null);
+  const playbackContextRef = useRef<AudioContext | null>(null);
+  const playbackRafRef = useRef<number | null>(null);
 
   function setVoiceState(next: VoiceState) {
     voiceStateRef.current = next;
@@ -217,12 +226,106 @@ export function ChatWorkspace({
     setConversationIdState(next);
   }
 
+  const stopMicLevel = useCallback(() => {
+    if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
+    micRafRef.current = null;
+    micAnalyserRef.current = null;
+    if (micAudioContextRef.current) {
+      void micAudioContextRef.current.close().catch(() => undefined);
+      micAudioContextRef.current = null;
+    }
+    micLevelStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micLevelStreamRef.current = null;
+    setAudioLevel(0);
+  }, []);
+
+  const stopPlaybackLevel = useCallback(() => {
+    if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
+    playbackRafRef.current = null;
+    playbackAnalyserRef.current = null;
+    if (playbackContextRef.current) {
+      void playbackContextRef.current.close().catch(() => undefined);
+      playbackContextRef.current = null;
+    }
+    setAudioLevel(0);
+  }, []);
+
+  const startPlaybackLevel = useCallback((audio: HTMLAudioElement) => {
+    try {
+      const ac = new AudioContext();
+      playbackContextRef.current = ac;
+      const source = ac.createMediaElementSource(audio);
+      const analyser = ac.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyser.connect(ac.destination);
+      playbackAnalyserRef.current = analyser;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!playbackAnalyserRef.current) return;
+        playbackAnalyserRef.current.getByteFrequencyData(data);
+        const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
+        setAudioLevel(avg);
+        playbackRafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch {
+      // playback level is best-effort
+    }
+  }, []);
+
+  const startMicLevel = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micLevelStreamRef.current = stream;
+      const ac = new AudioContext();
+      micAudioContextRef.current = ac;
+      const source = ac.createMediaStreamSource(stream);
+      const analyser = ac.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      micAnalyserRef.current = analyser;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!micAnalyserRef.current) return;
+        micAnalyserRef.current.getByteFrequencyData(data);
+        const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
+        setAudioLevel(avg);
+        micRafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+      stream.getTracks().forEach((t) => {
+        const prev = t.onended;
+        t.onended = (ev: Event) => {
+          if (typeof prev === "function") (prev as unknown as (ev: Event) => void)(ev);
+          stopMicLevel();
+        };
+      });
+    } catch {
+      // level metering is best-effort; listening still works without it
+    }
+  }, [stopMicLevel]);
+
   useEffect(() => {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, sending]);
 
+  useEffect(() => {
+    return () => {
+      if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
+      if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
+      if (micAudioContextRef.current) void micAudioContextRef.current.close().catch(() => undefined);
+      if (playbackContextRef.current) void playbackContextRef.current.close().catch(() => undefined);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (audioRef.current) audioRef.current.pause();
+      const synth = getSynthesis();
+      if (synth) synth.cancel();
+    };
+  }, []);
+
   const stopSpeaking = useCallback(() => {
+    stopPlaybackLevel();
     const synthesis = getSynthesis();
     if (synthesis) synthesis.cancel();
     if (audioRef.current) {
@@ -283,7 +386,6 @@ export function ChatWorkspace({
       }
       void speakWithServer(clean);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [voice.language, voice.rate, voice.voiceId],
   );
 
@@ -298,18 +400,27 @@ export function ChatWorkspace({
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.crossOrigin = "anonymous";
       audioRef.current = audio;
       audio.onended = () => {
+        stopPlaybackLevel();
         URL.revokeObjectURL(url);
         audioRef.current = null;
         if (voiceStateRef.current === "speaking") setVoiceState("idle");
       };
       audio.onerror = () => {
+        stopPlaybackLevel();
         URL.revokeObjectURL(url);
         audioRef.current = null;
         setVoiceError("Spoken reply is unavailable in this browser. The text reply is above.");
         setVoiceState("idle");
       };
+      // attach real analyser for honest visualizer (best-effort)
+      try {
+        startPlaybackLevel(audio);
+      } catch {
+        // ignore
+      }
       await audio.play();
     } catch {
       setVoiceError("Spoken reply is unavailable right now. The text reply is above.");
@@ -495,6 +606,7 @@ export function ChatWorkspace({
 
       recognition.onerror = (event) => {
         shouldSendRef.current = false;
+        stopMicLevel();
         if (event.error === "not-allowed" || event.error === "service-not-allowed") {
           setVoiceError("Microphone permission was blocked. Allow the microphone in your browser, or type instead.");
         } else if (event.error === "no-speech") {
@@ -509,6 +621,7 @@ export function ChatWorkspace({
       };
 
       recognition.onend = () => {
+        stopMicLevel();
         if (voiceStateRef.current === "listening") setVoiceState("idle");
         void endVoiceSession();
         const text = finalTranscriptRef.current.trim();
@@ -523,6 +636,7 @@ export function ChatWorkspace({
       try {
         recognition.start();
         setVoiceState("listening");
+        void startMicLevel();
       } catch {
         setVoiceError("The microphone could not start. Check your browser permissions.");
         setVoiceState("idle");
@@ -536,12 +650,34 @@ export function ChatWorkspace({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      // real level from the same stream (honest, not fake)
+      try {
+        const ac = new AudioContext();
+        micAudioContextRef.current = ac;
+        const source = ac.createMediaStreamSource(stream);
+        const analyser = ac.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        micAnalyserRef.current = analyser;
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          if (!micAnalyserRef.current) return;
+          micAnalyserRef.current.getByteFrequencyData(data);
+          const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
+          setAudioLevel(avg);
+          micRafRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch {
+        // level is best-effort
+      }
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
+        stopMicLevel();
         stream.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
@@ -583,6 +719,7 @@ export function ChatWorkspace({
   }
 
   function stopListening() {
+    stopMicLevel();
     const recognition = recognitionRef.current;
     if (recognition) {
       try {
@@ -919,7 +1056,7 @@ export function ChatWorkspace({
             </div>
           ) : null}
           <div style={{ maxWidth: 760, margin: "0 auto 10px" }}>
-            <AudioVisualizer audioState={voiceState} />
+            <AudioVisualizer audioState={voiceState} level={audioLevel} />
           </div>
           {voiceState !== "idle" || voiceError ? (
             <div className={voiceClass} role="status" aria-live="polite">

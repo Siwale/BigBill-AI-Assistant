@@ -54,6 +54,8 @@ export function DevicePanel() {
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
   const outputAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -68,6 +70,24 @@ export function DevicePanel() {
         })
         .catch(() => setPermission("unknown"));
     }
+    const handleDeviceChange = () => void refreshDevices();
+    navigator.mediaDevices?.addEventListener?.("devicechange", handleDeviceChange);
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.("devicechange", handleDeviceChange);
+      // lifecycle cleanup: never leave mic active after navigation
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      analyserRef.current = null;
+      if (audioContextRef.current) {
+        void audioContextRef.current.close().catch(() => undefined);
+        audioContextRef.current = null;
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (outputAudioRef.current) {
+        outputAudioRef.current.pause();
+        outputAudioRef.current.src = "";
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -102,6 +122,7 @@ export function DevicePanel() {
       setAudioState("listening");
       setMessage("Microphone active — speak to see the level meter.");
       const ac = new AudioContext();
+      audioContextRef.current = ac;
       const source = ac.createMediaStreamSource(stream);
       const analyser = ac.createAnalyser();
       analyser.fftSize = 256;
@@ -113,9 +134,19 @@ export function DevicePanel() {
         analyserRef.current.getByteFrequencyData(data);
         const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
         setLevel(avg);
-        requestAnimationFrame(tick);
+        rafRef.current = requestAnimationFrame(tick);
       };
       tick();
+      // stop if device disappears or track ends
+      stream.getTracks().forEach((t) => {
+        t.onended = () => {
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
+          analyserRef.current = null;
+          setAudioState("idle");
+          setLevel(0);
+          setMessage("Microphone track ended.");
+        };
+      });
       // persist preference label
       const dev = devices.find((d) => d.deviceId === selectedInput);
       if (dev?.label) {
@@ -142,12 +173,18 @@ export function DevicePanel() {
   }, [devices, selectedInput]);
 
   const stopMic = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    analyserRef.current = null;
+    if (audioContextRef.current) {
+      void audioContextRef.current.close().catch(() => undefined);
+      audioContextRef.current = null;
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    analyserRef.current = null;
     setLevel(0);
     setAudioState("idle");
-    setMessage("Microphone stopped.");
+    setMessage("Microphone stopped. Tracks and audio context cleaned up.");
   }, []);
 
   const testOutput = useCallback(async () => {

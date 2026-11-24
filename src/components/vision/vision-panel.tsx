@@ -15,7 +15,9 @@ export function VisionPanel({ conversationId }: Props) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [observationId, setObservationId] = useState<string | null>(null);
   const [captured, setCaptured] = useState<string | null>(null);
+  const [attachMessage, setAttachMessage] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>("");
 
@@ -30,6 +32,8 @@ export function VisionPanel({ conversationId }: Props) {
     setError("");
     setMessage("");
     setAnalysis(null);
+    setObservationId(null);
+    setAttachMessage("");
     setCaptured(null);
     try {
       let stream: MediaStream;
@@ -38,7 +42,6 @@ export function VisionPanel({ conversationId }: Props) {
           video: selectedCamera ? { deviceId: { exact: selectedCamera } } : true,
         });
       } else {
-        // getDisplayMedia requires explicit user gesture, which this click is
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: false,
@@ -108,12 +111,16 @@ export function VisionPanel({ conversationId }: Props) {
     form.append("caption", `Analyze this ${sourceType} capture concisely.`);
     try {
       const res = await fetch("/api/vision/observe", { method: "POST", body: form });
-      const data = (await res.json()) as { observation?: { analysis?: string | null }; error?: { message?: string } };
+      const data = (await res.json()) as {
+        observation?: { id: string; analysis?: string | null };
+        error?: { message?: string };
+      };
       if (!res.ok) {
         setError(data.error?.message ?? "Analysis failed.");
         setMessage("");
         return;
       }
+      setObservationId(data.observation?.id ?? null);
       setAnalysis(data.observation?.analysis ?? "No analysis returned.");
       setMessage("Captured. Analysis below is only from this image — nothing is inferred beyond what is visible.");
     } catch {
@@ -126,6 +133,8 @@ export function VisionPanel({ conversationId }: Props) {
       setError("");
       setMessage("Uploading and analyzing…");
       setAnalysis(null);
+      setObservationId(null);
+      setAttachMessage("");
       const previewUrl = URL.createObjectURL(file);
       setCaptured(previewUrl);
       const form = new FormData();
@@ -135,11 +144,15 @@ export function VisionPanel({ conversationId }: Props) {
       form.append("caption", "Describe only what you can actually see in this image.");
       try {
         const res = await fetch("/api/vision/observe", { method: "POST", body: form });
-        const data = (await res.json()) as { observation?: { analysis?: string | null }; error?: { message?: string } };
+        const data = (await res.json()) as {
+          observation?: { id: string; analysis?: string | null };
+          error?: { message?: string };
+        };
         if (!res.ok) {
           setError(data.error?.message ?? "Analysis failed.");
           return;
         }
+        setObservationId(data.observation?.id ?? null);
         setAnalysis(data.observation?.analysis ?? "No analysis returned.");
         setMessage("Upload analyzed. Shown source is the file you selected.");
       } catch {
@@ -148,6 +161,32 @@ export function VisionPanel({ conversationId }: Props) {
     },
     [conversationId],
   );
+
+  const attachToConversation = useCallback(async () => {
+    if (!observationId || !conversationId) {
+      setError("Open a conversation in the Assistant and capture again, or paste the observation ID manually.");
+      return;
+    }
+    setError("");
+    setAttachMessage("Attaching to conversation…");
+    try {
+      const res = await fetch("/api/vision/attach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ observationId, conversationId }),
+      });
+      const data = (await res.json()) as { error?: { message?: string } };
+      if (!res.ok) {
+        setError(data.error?.message ?? "Could not attach to conversation.");
+        setAttachMessage("");
+        return;
+      }
+      setAttachMessage("Attached — the assistant can now reason about this observation in that conversation.");
+    } catch {
+      setError("Attach failed.");
+      setAttachMessage("");
+    }
+  }, [conversationId, observationId]);
 
   useEffect(() => {
     return () => {
@@ -224,6 +263,18 @@ export function VisionPanel({ conversationId }: Props) {
           <div className="card" style={{ background: "var(--surface-2)" }}>
             <h4 style={{ marginBottom: 6 }}>What the assistant can see</h4>
             <p style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>{analysis}</p>
+            {observationId ? (
+              <div style={{ marginTop: 10 }}>
+                {conversationId ? (
+                  <button className="btn btn-primary btn-sm" type="button" onClick={attachToConversation}>
+                    Bring into conversation
+                  </button>
+                ) : (
+                  <span className="tiny muted">Open a conversation in the Assistant, then return to attach. ID: {observationId.slice(0, 8)}</span>
+                )}
+                {attachMessage ? <span className="tiny muted" style={{ marginLeft: 8 }}>{attachMessage}</span> : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
