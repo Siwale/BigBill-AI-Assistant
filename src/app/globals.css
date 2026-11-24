@@ -28,6 +28,56 @@
   --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 
+.theme-mission-control {
+  --paper: #0a1410;
+  --paper-strong: #0f1e18;
+  --surface: #111f1a;
+  --surface-2: #14261e;
+  --ink: #d6e7df;
+  --ink-soft: #9cb8ad;
+  --muted: #7a9a8d;
+  --line: #1e352b;
+  --line-strong: #2a4a3c;
+  --accent: #2ecc9c;
+  --accent-strong: #1ea882;
+  --accent-soft: #143326;
+  --warn: #f0b429;
+  --warn-soft: #2d2310;
+  --danger: #ff6b6b;
+  --danger-soft: #2d1515;
+  --info: #5eb0ff;
+  --info-soft: #132536;
+  --sidebar: #060e0b;
+  --sidebar-soft: #0f2019;
+  --sidebar-ink: #cfe8de;
+  --sidebar-muted: #6f9a8a;
+}
+
+.theme-audio-simulator {
+  --paper: #050a14;
+  --paper-strong: #0a1428;
+  --surface: #0b162c;
+  --surface-2: #0f1e3a;
+  --ink: #c7ddff;
+  --ink-soft: #8ab0e6;
+  --muted: #6a8ab8;
+  --line: #1a2e52;
+  --line-strong: #23406e;
+  --accent: #00e5ff;
+  --accent-strong: #00b8cc;
+  --accent-soft: #0a2e3a;
+  --warn: #ffcc00;
+  --warn-soft: #2e2a0a;
+  --danger: #ff3b6e;
+  --danger-soft: #2d111e;
+  --info: #7a6bff;
+  --info-soft: #1a143a;
+  --sidebar: #040812;
+  --sidebar-soft: #0a1430;
+  --sidebar-ink: #b8d0ff;
+  --sidebar-muted: #5a7ab8;
+}
+
 * {
   box-sizing: border-box;
 }

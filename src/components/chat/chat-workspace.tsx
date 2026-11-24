@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  Camera,
   Check,
   Mic,
+  MonitorUp,
   Plus,
   Send,
   ShieldAlert,
@@ -13,6 +15,8 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
+import { AudioVisualizer } from "@/components/voice/audio-visualizer";
+import { ThemeSwitcher } from "@/components/theme/theme-provider";
 
 type Citation = { sourceId: string; title: string; chunkIndex: number; source?: string };
 type PermissionRequest = { connectorId: string; connectorName: string; scopes: string[] };
@@ -767,7 +771,8 @@ export function ChatWorkspace({
               Executive Assistant · {userName} · {voice.provider === "openai" ? "Server voice fallback ready" : "Browser voice preferred"}
             </p>
           </div>
-          <div className="row">
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <ThemeSwitcher small />
             <button
               className={`voice-toggle${voiceMode ? " on" : ""}`}
               type="button"
@@ -913,6 +918,9 @@ export function ChatWorkspace({
               {error}
             </div>
           ) : null}
+          <div style={{ maxWidth: 760, margin: "0 auto 10px" }}>
+            <AudioVisualizer audioState={voiceState} />
+          </div>
           {voiceState !== "idle" || voiceError ? (
             <div className={voiceClass} role="status" aria-live="polite">
               <span className="voice-indicator">
@@ -978,10 +986,12 @@ export function ChatWorkspace({
                 >
                   {voiceState === "listening" ? <Square size={15} /> : <Mic size={16} />}
                 </button>
+                <a href="/app/devices" className="btn btn-sm btn-ghost" title="Test devices"><MonitorUp size={14} /> Devices</a>
+                <a href="/app/vision" className="btn btn-sm btn-ghost" title="Show vision"><Camera size={14} /> Vision</a>
                 <span className="composer-note">
                   {voiceState === "listening"
                     ? "Listening. Press stop when you finish."
-                    : "Type, or press the mic to speak."}
+                    : "Type, mic, or show something."}
                 </span>
               </div>
               <button
