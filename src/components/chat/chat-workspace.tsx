@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { AudioVisualizer } from "@/components/voice/audio-visualizer";
 import { ThemeSwitcher } from "@/components/theme/theme-provider";
+import { useRealtimeVoice } from "@/components/voice/realtime-webrtc";
 
 type Citation = { sourceId: string; title: string; chunkIndex: number; source?: string };
 type PermissionRequest = { connectorId: string; connectorName: string; scopes: string[] };
@@ -188,6 +189,8 @@ export function ChatWorkspace({
   const [voiceError, setVoiceError] = useState("");
   const [granting, setGranting] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [realtimeEnabled, setRealtimeEnabled] = useState(false);
+  const [devicePrefs, setDevicePrefs] = useState<{ inputId?: string; outputId?: string }>({});
 
   const conversationIdRef = useRef<string | null>(activeConversationId);
   const voiceModeRef = useRef(false);
@@ -210,6 +213,50 @@ export function ChatWorkspace({
   const playbackAnalyserRef = useRef<AnalyserNode | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
   const playbackRafRef = useRef<number | null>(null);
+
+  // Load saved device prefs for actual voice transport (honest, not diagnostics-only)
+  useEffect(() => {
+    void fetch("/api/devices")
+      .then((r) => r.json() as Promise<{ preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null }>)
+      .then(async (data) => {
+        if (!data.preference) return;
+        // Need to enumerate to map label → deviceId (browser privacy: label only after permission)
+        try {
+          const devs = await navigator.mediaDevices.enumerateDevices();
+          const input = devs.find((d) => d.kind === "audioinput" && d.label === data.preference?.preferredInputLabel);
+          const output = devs.find((d) => d.kind === "audiooutput" && d.label === data.preference?.preferredOutputLabel);
+          setDevicePrefs({ inputId: input?.deviceId, outputId: output?.deviceId });
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const realtime = useRealtimeVoice({
+    selectedInputId: devicePrefs.inputId,
+    selectedOutputId: devicePrefs.outputId,
+    onTranscript: (text, isFinal) => {
+      if (isFinal) void sendMessage(text, "voice");
+      else setTranscript(text);
+    },
+    onAssistantText: (text) => {
+      setTranscript((prev) => (prev ? `${prev} ${text}` : text));
+    },
+    onStateChange: (state, msg) => {
+      if (state === "connected") {
+        setVoiceState("listening");
+        setVoiceError("");
+      } else if (state === "error") {
+        setVoiceError(msg ?? "Realtime error. Falling back to server transcription.");
+        setVoiceState("error");
+        setRealtimeEnabled(false);
+      } else if (state === "disconnected") {
+        setVoiceState("idle");
+        setRealtimeEnabled(false);
+      }
+    },
+  });
 
   function setVoiceState(next: VoiceState) {
     voiceStateRef.current = next;
@@ -574,6 +621,12 @@ export function ChatWorkspace({
   }
 
   async function startListening() {
+    if (realtimeEnabled) {
+      const id = conversationIdRef.current || (await ensureConversationForVoice());
+      if (!id) return;
+      if (realtime.state !== "connected") await realtime.connect(id);
+      return;
+    }
     if (voiceStateRef.current === "listening") return;
     stopSpeaking();
     setVoiceError("");
@@ -910,6 +963,25 @@ export function ChatWorkspace({
           </div>
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <ThemeSwitcher small />
+            <button
+              className={`btn btn-sm ${realtimeEnabled ? "btn-primary" : ""}`}
+              type="button"
+              onClick={async () => {
+                if (realtimeEnabled) {
+                  realtime.disconnect();
+                  setRealtimeEnabled(false);
+                  setVoiceState("idle");
+                } else {
+                  const id = conversationIdRef.current || (await ensureConversationForVoice());
+                  if (!id) return;
+                  setRealtimeEnabled(true);
+                  await realtime.connect(id);
+                }
+              }}
+              title={realtimeEnabled ? "Realtime connected — click to disconnect" : "Connect Realtime voice (WebRTC)"}
+            >
+              {realtimeEnabled ? "Realtime on" : "Realtime"}
+            </button>
             <button
               className={`voice-toggle${voiceMode ? " on" : ""}`}
               type="button"
