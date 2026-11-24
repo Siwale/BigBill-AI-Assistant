@@ -78,6 +78,29 @@
   --sidebar-muted: #5a7ab8;
 }
 
+/* Loop 4 — Aida Command Environment (cinematic, holographic) */
+.command-env {
+  --cmd-bg: #020812;
+  --cmd-bg-2: #06101e;
+  --cmd-surface: rgba(10, 22, 42, 0.6);
+  --cmd-surface-strong: rgba(14, 32, 62, 0.75);
+  --cmd-ink: #d6e8ff;
+  --cmd-ink-soft: #8aa8d6;
+  --cmd-muted: #5a7ab8;
+  --cmd-line: rgba(0, 229, 255, 0.15);
+  --cmd-line-strong: rgba(0, 229, 255, 0.3);
+  --cmd-cyan: #00e5ff;
+  --cmd-cyan-strong: #00b8cc;
+  --cmd-blue: #5eb0ff;
+  --cmd-amber: #ffcc00;
+  --cmd-amber-soft: rgba(255, 204, 0, 0.15);
+  --cmd-green: #2ecc9c;
+  --cmd-red: #ff3b6e;
+  --cmd-glow: 0 0 20px rgba(0, 229, 255, 0.3), 0 0 40px rgba(0, 229, 255, 0.1);
+  --cmd-radius: 16px;
+  --cmd-radius-sm: 10px;
+}
+
 * {
   box-sizing: border-box;
 }

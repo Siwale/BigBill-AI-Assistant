@@ -9,7 +9,6 @@ import {
   Check,
   Mic,
   MonitorUp,
-  Plus,
   Send,
   ShieldAlert,
   Square,
@@ -208,6 +207,12 @@ export function ChatWorkspace({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const speechNetworkFailedRef = useRef(false);
+  // Persist network failure across reloads — Chromium without Google speech API will always fail
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("speechNetworkFailed") === "true") speechNetworkFailedRef.current = true;
+    } catch {}
+  }, []);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const micAudioContextRef = useRef<AudioContext | null>(null);
   const micRafRef = useRef<number | null>(null);
@@ -826,9 +831,8 @@ export function ChatWorkspace({
       };
 
       recognition.onerror = (event) => {
-        console.error("[SpeechRecognition] error:", event.error, event.message);
+        console.warn("[SpeechRecognition] error:", event.error, event.message);
         shouldSendRef.current = false;
-        // No second mic stream for this path, so no stopMicLevel needed — avoid clearing a non-existent analyser
         if (event.error === "not-allowed" || event.error === "service-not-allowed") {
           setVoiceError("Microphone permission was blocked. Allow the microphone in your browser, or type instead.");
         } else if (event.error === "no-speech") {
@@ -837,7 +841,8 @@ export function ChatWorkspace({
           setVoiceError("No microphone was found. Check your device, or type instead.");
         } else if (event.error === "network") {
           speechNetworkFailedRef.current = true;
-          setVoiceError("Browser speech network unavailable — switched to server transcription for next try. Tap mic again or use Realtime/Live.");
+          try { localStorage.setItem("speechNetworkFailed", "true"); } catch {}
+          setVoiceError("Browser speech network unavailable — switched to server transcription. Tap mic again (now server Whisper) or use Realtime/Live.");
         } else if (event.error !== "aborted") {
           setVoiceError(`Speech recognition stopped (${event.error}). You can try again or type.`);
         }
@@ -1046,29 +1051,6 @@ export function ChatWorkspace({
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
   }
 
-  async function newConversation() {
-    try {
-      const response = await fetch("/api/conversations", { method: "POST" });
-      const data = (await response.json()) as { conversation?: { id: string }; error?: { message?: string } };
-      if (!response.ok || !data.conversation) {
-        setError(data.error?.message ?? "Could not start a conversation.");
-        return;
-      }
-      setConversationId(data.conversation.id);
-      setConversations((previous) => [
-        { id: data.conversation!.id, title: "New conversation", updatedAt: new Date().toISOString() },
-        ...previous,
-      ]);
-      setMessages([]);
-      setError("");
-      if (typeof window !== "undefined") {
-        window.history.replaceState(null, "", `/app?c=${data.conversation.id}`);
-      }
-    } catch {
-      setError("Could not start a conversation.");
-    }
-  }
-
   async function grantPermission(request: PermissionRequest) {
     setGranting(request.connectorId);
     setError("");
@@ -1126,11 +1108,21 @@ export function ChatWorkspace({
     <div className="chat-layout">
       <aside className="conv-rail" aria-label="Conversations">
         <div className="conv-rail-head">
-          <button className="btn btn-primary btn-sm" type="button" onClick={newConversation}>
-            <Plus size={14} /> New conversation
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link href="/app/history" className="btn btn-sm" style={{ flex: 1, textAlign: "center" }}>
+              History
+            </Link>
+            <button className="btn btn-sm" type="button" onClick={async () => {
+              if (!conversationId) return;
+              if (!confirm("Archive this conversation? It will remain searchable but not active.")) return;
+              await fetch(`/api/conversations/${conversationId}/archive`, { method: "POST" });
+              window.location.href = "/app";
+            }} disabled={!conversationId}>
+              Archive
+            </button>
+          </div>
           <p className="tiny muted" style={{ margin: 0 }}>
-            Text and voice share every conversation.
+            One continuous conversation — older turns are archived, not deleted.
           </p>
         </div>
         <div className="conv-list">

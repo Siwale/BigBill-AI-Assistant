@@ -205,14 +205,13 @@ export function useRealtimeVoice(params: {
         },
         body: offer.sdp ?? "",
       });
-      const contentType = sdpRes.headers.get("content-type") ?? "";
-      if (!sdpRes.ok || !contentType.includes("application/sdp")) {
+      if (!sdpRes.ok) {
         const text = await sdpRes.text().catch(() => "");
         throw new Error(`Realtime SDP failed: ${sdpRes.status} ${text.slice(0, 500)}`);
       }
       const answerSdp = await sdpRes.text();
       if (!answerSdp.trim().startsWith("v=")) {
-        throw new Error("Realtime SDP answer malformed.");
+        throw new Error(`Realtime SDP answer malformed (expected v=, got ${answerSdp.slice(0, 100)}).`);
       }
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
       return true;

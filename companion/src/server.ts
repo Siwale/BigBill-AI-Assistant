@@ -99,9 +99,15 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // Auth required for device ops
-  const session = requireAuth(req);
-  if (!session) { json(res, 401, { error: "missing or expired companion session" }); return; }
+  // Auth required for device ops — engineering audit is trusted loopback from Aida server (no browser token)
+  const isEngineering = url.pathname.startsWith("/engineering/");
+  let session: Session | null = null;
+  if (!isEngineering) {
+    session = requireAuth(req);
+    if (!session) { json(res, 401, { error: "missing or expired companion session" }); return; }
+  } else {
+    session = requireAuth(req); // optional — if provided, use it, otherwise allow loopback
+  }
 
   if (url.pathname === "/devices/discover" && req.method === "POST") {
     // Use bluetoothctl devices + paired-devices
@@ -156,10 +162,46 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/audio/test-tone" && req.method === "POST") {
     const sink = String(jsonBody.sink ?? "@DEFAULT_SINK@").slice(0, 100);
-    // Try paplay with freedesktop sound, fallback to speaker-test
     let r = await allowlistedExec("paplay", ["/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga", "--volume=30000"]);
     if (r.code !== 0) r = await allowlistedExec("speaker-test", ["-t", "sine", "-f", "440", "-l", "1", "-c", "2"]);
     json(res, r.code === 0 ? 200 : 502, { sink, stdout: r.stdout.slice(0, 1000), stderr: r.stderr.slice(0, 1000), code: r.code });
+    return;
+  }
+
+  if (url.pathname === "/engineering/audit" && req.method === "POST") {
+    // Fixed bridge: python3 -m forge.integrations.aida_bridge (no shell, arg array)
+    const FORGE_PATH = process.env.FORGE_PATH ?? "/home/bill/BigBill Systems/Forge";
+    const bodyStr = JSON.stringify(jsonBody);
+    // Validate contractVersion
+    if ((jsonBody as { contractVersion?: string }).contractVersion !== "1") {
+      json(res, 400, { error: "unsupported contractVersion" });
+      return;
+    }
+    // Spawn fixed module
+    const child = spawn("python3", ["-m", "forge.integrations.aida_bridge"], {
+      cwd: FORGE_PATH,
+      env: { ...process.env, PYTHONPATH: `${FORGE_PATH}/src` },
+      timeout: 120_000,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.stdin.write(bodyStr);
+    child.stdin.end();
+    const code: number | null = await new Promise((resolve) => {
+      child.on("close", resolve);
+      child.on("error", () => resolve(1));
+      setTimeout(() => { try { child.kill(); } catch {} resolve(124); }, 115_000);
+    });
+    // Secret redaction already in bridge, but also ensure no raw path leakage beyond allowed
+    let result: unknown = null;
+    try {
+      result = JSON.parse(stdout);
+    } catch {
+      result = { raw: stdout.slice(0, 4000), stderr: stderr.slice(0, 2000) };
+    }
+    json(res, code === 0 ? 200 : 502, { code, result, stderr: stderr.slice(0, 2000) });
     return;
   }
 

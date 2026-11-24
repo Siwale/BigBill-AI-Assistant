@@ -865,6 +865,104 @@ export const moviesWhereToWatchTool: ToolDefinition = {
   },
 };
 
+export const listRepositoriesTool: ToolDefinition = {
+  id: "list_registered_repositories",
+  name: "List registered repositories",
+  description: "List local repositories the current tenant may access via companion.",
+  connectorId: "engineering",
+  risk: "R1",
+  requiredScopes: ["engineering.repositories.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 5_000,
+  inputSchema: z.object({}),
+  parameters: noArgs,
+  summarize: () => "List registered repositories",
+  execute: async (_raw, ctx): Promise<ToolSuccess> => {
+    const { db } = await import("@/db/client");
+    const { engineeringRepositories } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const rows = await db.select().from(engineeringRepositories).where(eq(engineeringRepositories.tenantId, ctx.tenantId)).limit(20);
+    return { ok: true, summary: `${rows.length} repository(ies) registered.`, data: { repositories: rows.map((r) => ({ id: r.id, displayName: r.displayName, branch: r.branch, commitSha: r.commitSha?.slice(0, 7) })) } };
+  },
+};
+
+export const getRepositoryStatusTool: ToolDefinition = {
+  id: "get_repository_status",
+  name: "Get repository status",
+  description: "Read branch/commit/dirty state for a registered repository.",
+  connectorId: "engineering",
+  risk: "R1",
+  requiredScopes: ["engineering.repositories.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 5_000,
+  inputSchema: z.object({ repositoryId: z.string().uuid() }),
+  parameters: requestShape({ repositoryId: { type: "string" } }, ["repositoryId"]),
+  summarize: (input) => `Get status for ${(input as { repositoryId?: string }).repositoryId?.slice(0, 8) ?? ""}`,
+  execute: async (raw, ctx): Promise<ToolSuccess> => {
+    const { repositoryId } = z.object({ repositoryId: z.string().uuid() }).parse(raw);
+    const { db } = await import("@/db/client");
+    const { engineeringRepositories } = await import("@/db/schema");
+    const { and, eq } = await import("drizzle-orm");
+    const rows = await db.select().from(engineeringRepositories).where(and(eq(engineeringRepositories.id, repositoryId), eq(engineeringRepositories.tenantId, ctx.tenantId))).limit(1);
+    const repo = rows[0];
+    if (!repo) throw new Error("Repository not found for this tenant");
+    return { ok: true, summary: `${repo.displayName} on ${repo.branch ?? "—"} @ ${repo.commitSha?.slice(0, 7) ?? "—"}`, data: repo };
+  },
+};
+
+export const startRepositoryAuditTool: ToolDefinition = {
+  id: "start_repository_audit",
+  name: "Start repository audit",
+  description: "Start a read-only Forge review for a registered repository (bounded, no shell).",
+  connectorId: "engineering",
+  risk: "R2",
+  requiredScopes: ["engineering.audit.run"],
+  enabled: true,
+  idempotency: "not_idempotent",
+  timeoutMs: 15_000,
+  inputSchema: z.object({ repositoryId: z.string().uuid(), scopeType: z.enum(["whole_repository", "feature", "file", "directory", "api", "function", "class", "question"]).default("whole_repository"), scopeTarget: z.string().max(200).optional() }),
+  parameters: requestShape({ repositoryId: { type: "string" }, scopeType: { type: "string", enum: ["whole_repository", "feature", "file", "directory", "api", "function", "class", "question"] }, scopeTarget: { type: "string" } }, ["repositoryId"]),
+  summarize: (input) => `Start audit for ${(input as { repositoryId?: string }).repositoryId?.slice(0, 8) ?? ""}`,
+  execute: async (raw, ctx): Promise<ToolSuccess> => {
+    const input = z.object({ repositoryId: z.string().uuid(), scopeType: z.enum(["whole_repository", "feature", "file", "directory", "api", "function", "class", "question"]).default("whole_repository"), scopeTarget: z.string().max(200).optional() }).parse(raw);
+    const { db } = await import("@/db/client");
+    const { engineeringAudits, engineeringRepositories } = await import("@/db/schema");
+    const { and, eq } = await import("drizzle-orm");
+    const repo = (await db.select().from(engineeringRepositories).where(and(eq(engineeringRepositories.id, input.repositoryId), eq(engineeringRepositories.tenantId, ctx.tenantId))).limit(1))[0];
+    if (!repo) throw new Error("Repository not found for this tenant");
+    const [audit] = await db.insert(engineeringAudits).values({ tenantId: ctx.tenantId, userId: ctx.userId, repositoryId: repo.id, scopeType: input.scopeType, scopeTarget: input.scopeTarget ?? null, reviewProfile: "standard", status: "pending", adapterVersion: "1.0.0" }).returning();
+    if (!audit) throw new Error("Failed to create audit");
+    return { ok: true, summary: `Audit ${audit.id.slice(0, 8)} queued for ${repo.displayName}`, data: { auditId: audit.id, repositoryId: repo.id } };
+  },
+};
+
+export const searchArchivedConversationsTool: ToolDefinition = {
+  id: "search_archived_conversations",
+  name: "Search archived conversations",
+  description: "Search the user's archived conversations by keyword and return source references for the current active conversation.",
+  connectorId: "workspace",
+  risk: "R1",
+  requiredScopes: ["knowledge.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 8_000,
+  inputSchema: z.object({ query: z.string().min(2).max(200) }),
+  parameters: requestShape({ query: { type: "string" } }, ["query"]),
+  summarize: (input) => `Search archived conversations for “${(input as { query?: string }).query ?? ""}”`,
+  execute: async (raw, ctx): Promise<ToolSuccess> => {
+    const { query } = z.object({ query: z.string().min(2).max(200) }).parse(raw);
+    const { searchArchivedConversations } = await import("@/modules/conversations/archive");
+    const result = await searchArchivedConversations({ tenantId: ctx.tenantId, userId: ctx.userId, query });
+    return {
+      ok: true,
+      summary: result.conversations.length ? `Found ${result.conversations.length} archived conversation(s).` : "No archived conversations matched.",
+      data: { conversations: result.conversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })), note: "Open read-only in History or ask to continue." },
+    };
+  },
+};
+
 export const TOOL_REGISTRY: ToolDefinition[] = [
   createTaskTool,
   listTasksTool,
@@ -883,6 +981,10 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   musicPlayTool,
   moviesSearchTool,
   moviesWhereToWatchTool,
+  listRepositoriesTool,
+  getRepositoryStatusTool,
+  startRepositoryAuditTool,
+  searchArchivedConversationsTool,
   ...disabledTools,
 ];
 
