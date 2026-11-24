@@ -57,7 +57,10 @@
 4. TTS visemes are heuristic (`approximate:true`), but server-TTS path now re-anchors the schedule to the real audio duration on metadata load.
 5. `DEMO — NOT LIVE` simulator — BUILT: `/app/aida-preview` (dev-only, production-gated, synthetic fixture, Play/Pause/Reset/Step verified live, 0 errors; timers pause when tab backgrounded — QA with tab visible).
 6. Dead routes FIXED: `/app/forge`, `/app/qylon`, `/app/projects`, `/app/media` render honest “Not connected” stubs (Forge verified live).
-7. History archive list FIXED (`listArchivedConversations`); archive search tool pre-existed and is model-callable; LIKE wildcards escaped. Cited-retrieval conversation test + a11y/perf profiling still open.
+7. History archive list FIXED (`listArchivedConversations`); archive search tool pre-existed and is model-callable; LIKE wildcards escaped.
+8. Cited archive-retrieval test — BUILT: `tests/loop4-archive.test.ts` (6 tests, real DB): topic retrieval with source/time, honest no-match, cross-tenant isolation, model-tool execution with citations, read-only transcript with tenant check, active-conversation exclusion. All pass.
+9. Accessibility audit — DONE: Lighthouse on `/app/engineering` scores 1.0 accessibility / 1.0 best-practices / 1.0 SEO, 0 failures; keyboard Tab order reaches nav + labelled composer; avatar honours `prefers-reduced-motion` and tab-hidden pause.
+10. GLB procurement — investigated, deliberately not executed (see gap analysis): no commercial-safe photoreal free asset; needs user-approved licensed source. Procedural adapter is GLB-ready.
 
 ## Deployment
 - No production deployment performed.
