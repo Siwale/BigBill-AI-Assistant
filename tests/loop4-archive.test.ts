@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, sqlClient } from "@/db/client";
-import { conversations, messages, tenants, users } from "@/db/schema";
+import { conversations, tenants, users } from "@/db/schema";
 import {
   addMessage,
   createConversation,
