@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Bell,
-  Box,
   Camera,
   Cpu,
   Headphones,
@@ -52,7 +51,6 @@ const RAIL = [
   { href: "/app/devices", label: "Devices", icon: MonitorSmartphone },
   { href: "/app/media", label: "Media", icon: Headphones },
   { href: "/app/vision", label: "Vision", icon: Camera },
-  { href: "/app/repositories", label: "Repositories", icon: Box },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
@@ -60,15 +58,27 @@ const RAIL_DISABLED = [{ label: "Automation", reason: "Not connected — no auto
 
 function AidaMark() {
   return (
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden role="img">
+    <svg width="46" height="42" viewBox="0 0 46 42" aria-hidden role="img">
+      <defs>
+        <linearGradient id="aida-mark" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#5AD5FB" />
+          <stop offset="0.55" stopColor="#31BAF2" />
+          <stop offset="1" stopColor="#1D75B5" />
+        </linearGradient>
+      </defs>
       <path
-        d="M17 3 L31 29 L24.5 29 L17 13.5 L9.5 29 L3 29 Z"
-        fill="none"
-        stroke="#48C9F4"
-        strokeWidth="2.4"
-        strokeLinejoin="round"
+        d="M23 3 L43 37 L33.5 37 L23 16.5 L12.5 37 L3 37 Z"
+        fill="url(#aida-mark)"
+        opacity="0.92"
       />
-      <path d="M12.5 23.5 L21.5 23.5" stroke="#5AD5FB" strokeWidth="2" strokeLinecap="round" />
+      <path d="M17 29.5 L29 29.5" stroke="#E8F6FF" strokeWidth="2.6" strokeLinecap="round" />
+      <path
+        d="M23 3 L43 37 L33.5 37 L23 16.5 L12.5 37 L3 37 Z"
+        fill="none"
+        stroke="#5AD5FB"
+        strokeWidth="1"
+        opacity="0.7"
+      />
     </svg>
   );
 }

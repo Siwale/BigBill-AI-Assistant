@@ -908,6 +908,24 @@ export function ChatWorkspace({
       recognition.lang = voice.language || navigator.language || "en-US";
       recognition.continuous = true;
       recognition.interimResults = true;
+      // Assistant-name vocabulary hint (Chrome JSGF grammars where supported) so the
+      // recogniser prefers the configured assistant name over homophones ("Aida"/"Ida").
+      // The transcript stays editable via the composer before sending.
+      try {
+        const w = window as unknown as {
+          webkitSpeechGrammarList?: new () => { addFromString: (s: string, w: number) => void };
+          SpeechGrammarList?: new () => { addFromString: (s: string, w: number) => void };
+        };
+        const GrammarCtor = w.SpeechGrammarList ?? w.webkitSpeechGrammarList;
+        const names = Array.from(new Set([assistantName, "Aida", "BigBill", "Forge", "Qylon"].map((n) => (n ?? "").trim()).filter(Boolean)));
+        if (GrammarCtor && names.length > 0) {
+          const grammar = new GrammarCtor();
+          grammar.addFromString(`#JSGF V1.0; grammar names; public <name> = ${names.join(" | ")} ;`, 1);
+          (recognition as unknown as { grammars: unknown }).grammars = grammar;
+        }
+      } catch {
+        // grammars unsupported — recognition proceeds without the hint
+      }
       finalTranscriptRef.current = "";
       shouldSendRef.current = true;
 

@@ -107,7 +107,7 @@ export function AudioVisualizer({ audioState, level, reducedMotion }: Props) {
     <div
       role="img"
       aria-label={`Voice visualizer: ${audioState}${level !== undefined ? ` level ${Math.round((level ?? 0) * 100)}%` : ""}`}
-      style={{ width: "100%", height: 120, border: "1px solid var(--line)", borderRadius: 12, background: "var(--surface-2)", padding: 8 }}
+      style={{ width: "100%", height: 120, border: "1px solid var(--aida-border-strong, rgba(29,117,181,0.45))", borderRadius: 12, background: "rgba(3,20,35,0.9)", padding: 8 }}
     >
       <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
       <span className="tiny muted" style={{ position: "absolute", left: -9999 }}>

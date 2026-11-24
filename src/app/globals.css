@@ -210,9 +210,10 @@
 }
 .aida-brand-name {
   font-weight: 800;
-  letter-spacing: 4px;
-  font-size: 26px;
-  color: var(--aida-text-strong);
+  letter-spacing: 5px;
+  font-size: 30px;
+  color: #f2fbff;
+  text-shadow: 0 0 14px rgba(49, 186, 242, 0.45);
 }
 .aida-brand-sub {
   font-size: 10px;
@@ -253,13 +254,14 @@
   white-space: nowrap;
 }
 .aida-rail {
-  width: 159px;
+  width: clamp(96px, 9.45vw, 158px);
   background: rgba(3, 11, 19, 0.82);
   border-right: 1px solid rgba(11, 67, 118, 0.7);
   padding: 14px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 0 0 auto;
 }
 .aida-rail a {
   display: flex;
@@ -320,6 +322,27 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
+  }
+}
+@media (max-width: 1280px) {
+  .aida-loop-badge {
+    display: none;
+  }
+  .aida-topbar {
+    gap: 10px;
+  }
+  .aida-nav {
+    overflow-x: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    scrollbar-width: none;
+  }
+  .aida-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .aida-nav a {
+    white-space: nowrap;
+    flex: 0 0 auto;
   }
 }
 @media (max-width: 900px) {
@@ -639,6 +662,88 @@
 .aida-cc .conv-rail-head .tiny,
 .aida-cc .conv-empty {
   color: var(--aida-text-muted);
+}
+/* Legacy light-theme surfaces that still render inside the shell (devices,
+   vision, meetings, settings cards): remap to the command-centre palette so
+   no cream panel can appear in the Aida experience. */
+.aida-cc .card,
+.aida-cc .draft-card,
+.aida-cc .connector-card,
+.aida-cc .stat {
+  background: rgba(3, 20, 35, 0.88);
+  border-color: var(--aida-border);
+  color: var(--aida-text);
+}
+.aida-cc .page-header h1,
+.aida-cc .section-title,
+.aida-cc .stat-value {
+  color: var(--aida-text-strong);
+}
+.aida-cc .page-header p,
+.aida-cc .section-sub,
+.aida-cc .connector-note,
+.aida-cc .stat-label,
+.aida-cc .hint {
+  color: var(--aida-text-muted);
+}
+.aida-cc .field label,
+.aida-cc .scope-label {
+  color: var(--aida-text);
+}
+.aida-cc .field input,
+.aida-cc .field textarea,
+.aida-cc .field select {
+  background: rgba(2, 8, 18, 0.7);
+  border-color: var(--aida-border);
+  color: var(--aida-text-strong);
+}
+.aida-cc .banner {
+  background: rgba(3, 20, 35, 0.9);
+  border-color: var(--aida-border);
+  color: var(--aida-text);
+}
+.aida-cc .banner.warn {
+  background: rgba(190, 141, 89, 0.12);
+  border-color: var(--aida-amber);
+  color: var(--aida-amber-bright);
+}
+.aida-cc .banner.info {
+  background: rgba(31, 159, 233, 0.1);
+  border-color: var(--aida-border-strong);
+  color: var(--aida-text);
+}
+.aida-cc .error {
+  background: rgba(232, 91, 98, 0.12);
+  border-color: var(--aida-error);
+  color: var(--aida-text-strong);
+}
+.aida-cc .list-item {
+  background: rgba(3, 20, 35, 0.85);
+  border-color: var(--aida-border);
+}
+.aida-cc .list-item-title {
+  color: var(--aida-text);
+}
+.aida-cc .list-item-meta,
+.aida-cc .rail-meta {
+  color: var(--aida-text-muted);
+}
+.aida-cc .empty {
+  background: rgba(3, 20, 35, 0.7);
+  border-color: var(--aida-border);
+  color: var(--aida-text-muted);
+}
+.aida-cc .code-block,
+.aida-cc .draft-body {
+  background: rgba(2, 8, 18, 0.7);
+  border-color: var(--aida-border);
+  color: var(--aida-text);
+}
+.aida-cc .kv dt {
+  color: var(--aida-text-muted);
+}
+.aida-cc .kv dd {
+  color: var(--aida-text);
 }
 .aida-history-drawer {
   background: rgba(3, 20, 35, 0.95);
