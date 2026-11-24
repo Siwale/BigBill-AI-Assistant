@@ -20,6 +20,8 @@ export class ModelError extends Error {
   constructor(
     public kind: "unconfigured" | "auth" | "rate_limit" | "timeout" | "provider" | "invalid",
     message: string,
+    public status?: number,
+    public code?: string,
   ) {
     super(message);
     this.name = "ModelError";
@@ -55,20 +57,21 @@ function normalizeError(error: unknown): ModelError {
   if (error instanceof ModelError) return error;
   if (error instanceof OpenAI.APIError) {
     if (error.status === 401 || error.status === 403) {
-      return new ModelError("auth", "The model provider rejected the configured credentials.");
+      return new ModelError("auth", "The model provider rejected the configured credentials.", error.status ?? undefined, error.code ?? undefined);
     }
     if (error.status === 429) {
-      return new ModelError("rate_limit", "The model provider is rate limiting requests.");
+      return new ModelError("rate_limit", "The model provider is rate limiting requests.", error.status ?? undefined, error.code ?? undefined);
     }
     if (error.status === 408 || error.code === "ETIMEDOUT") {
-      return new ModelError("timeout", "The model provider timed out.");
+      return new ModelError("timeout", "The model provider timed out.", error.status ?? undefined, error.code ?? undefined);
     }
-    return new ModelError("provider", `The model provider returned an error (${error.status ?? "unknown"}).`);
+    return new ModelError("provider", `The model provider returned an error (${error.status ?? "unknown"}).`, error.status ?? undefined, error.code ?? undefined);
   }
   if (error instanceof Error && /abort|timeout/i.test(error.message)) {
-    return new ModelError("timeout", "The model request timed out.");
+    return new ModelError("timeout", "The model request timed out.", undefined, "ABORT_OR_TIMEOUT");
   }
-  return new ModelError("provider", "The model provider could not be reached.");
+  const code = error instanceof Error ? (error as Error & { code?: string }).code ?? error.name : "UNKNOWN";
+  return new ModelError("provider", "The model provider could not be reached.", undefined, code);
 }
 
 export async function runChatCompletion(params: {

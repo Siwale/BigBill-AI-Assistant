@@ -37,6 +37,21 @@ export async function createConversation(params: {
   return conversation;
 }
 
+export async function listArchivedConversations(tenantId: string, userId: string, limit = 40): Promise<Conversation[]> {
+  return db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.tenantId, tenantId),
+        eq(conversations.userId, userId),
+        eq(conversations.archived, true),
+      ),
+    )
+    .orderBy(desc(conversations.updatedAt))
+    .limit(Math.min(limit, 100));
+}
+
 export async function listConversations(tenantId: string, userId: string, limit = 40): Promise<Conversation[]> {
   return db
     .select()

@@ -53,11 +53,11 @@
 ## Known limitations/blockers
 1. No licensed rigged human GLB — photoreal Aida not met; interim bust is stylised. Next: procure/import licensed asset behind the existing adapter.
 2. No 1672×941 capture — window size fixed by environment; pixel-overlay QA still open.
-3. Model-provider inference failure not fixed — needs live key/network diagnosis, not UI.
-4. TTS visemes are heuristic (`approximate:true`), not provider phoneme alignment.
-5. `DEMO — NOT LIVE` simulator route not built.
-6. Pre-existing dead routes (`/app/forge`, `/app/projects`, `/app/media`, `/app/qylon`) untouched.
-7. Archive retrieval test + a11y/perf profiling not run.
+3. Model-provider inference failure — RESOLVED this loop: live probe returned `probe-ok` from `gpt-4o-mini` in 4.6s (21:04 failure was transient). `ModelError` now carries `status`/`code` into warn logs + incident evidence.
+4. TTS visemes are heuristic (`approximate:true`), but server-TTS path now re-anchors the schedule to the real audio duration on metadata load.
+5. `DEMO — NOT LIVE` simulator — BUILT: `/app/aida-preview` (dev-only, production-gated, synthetic fixture, Play/Pause/Reset/Step verified live, 0 errors; timers pause when tab backgrounded — QA with tab visible).
+6. Dead routes FIXED: `/app/forge`, `/app/qylon`, `/app/projects`, `/app/media` render honest “Not connected” stubs (Forge verified live).
+7. History archive list FIXED (`listArchivedConversations`); archive search tool pre-existed and is model-callable; LIKE wildcards escaped. Cited-retrieval conversation test + a11y/perf profiling still open.
 
 ## Deployment
 - No production deployment performed.

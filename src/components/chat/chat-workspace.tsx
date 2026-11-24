@@ -655,6 +655,19 @@ export function ChatWorkspace({
       const visemes = await visemePromise;
       if (visemes) onViseme?.(visemes, Date.now());
       audioRef.current = audio;
+      // Re-anchor the mouth schedule to the real audio duration once known,
+      // so visemes track actual speech instead of the text-length estimate.
+      audio.onloadedmetadata = () => {
+        const seconds = audio.duration;
+        if (Number.isFinite(seconds) && seconds > 0.5 && seconds < 300) {
+          void fetch("/api/voice/visemes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text.slice(0, 400), durationMs: Math.round(seconds * 1000) }) })
+            .then((r) => r.json() as Promise<{ visemes?: import("@/modules/voice/viseme").TimedViseme[] }>)
+            .then((d) => {
+              if (d.visemes && audioRef.current === audio) onViseme?.(d.visemes, Date.now());
+            })
+            .catch(() => {});
+        }
+      };
       audio.onended = () => {
         stopPlaybackLevel();
         URL.revokeObjectURL(url);

@@ -1,5 +1,5 @@
 import { requireOnboardedPageSession } from "@/modules/auth/session";
-import { listConversations, listMessages } from "@/modules/conversations/service";
+import { listArchivedConversations, listMessages } from "@/modules/conversations/service";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -7,8 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function HistoryPage({ searchParams }: { searchParams: Promise<{ q?: string; c?: string }> }) {
   const session = await requireOnboardedPageSession();
   const { q, c } = await searchParams;
-  const all = await listConversations(session.user.tenantId, session.user.id);
-  const archived = all.filter((conv) => conv.archived);
+  const archived = await listArchivedConversations(session.user.tenantId, session.user.id);
   const filtered = q ? archived.filter((conv) => conv.title.toLowerCase().includes(q.toLowerCase())) : archived;
   let viewed: Awaited<ReturnType<typeof listMessages>> | null = null;
   if (c) {
