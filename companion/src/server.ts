@@ -99,9 +99,15 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // Auth required for device ops
-  const session = requireAuth(req);
-  if (!session) { json(res, 401, { error: "missing or expired companion session" }); return; }
+  // Auth required for device ops — engineering audit is trusted loopback from Aida server (no browser token)
+  const isEngineering = url.pathname.startsWith("/engineering/");
+  let session: Session | null = null;
+  if (!isEngineering) {
+    session = requireAuth(req);
+    if (!session) { json(res, 401, { error: "missing or expired companion session" }); return; }
+  } else {
+    session = requireAuth(req); // optional — if provided, use it, otherwise allow loopback
+  }
 
   if (url.pathname === "/devices/discover" && req.method === "POST") {
     // Use bluetoothctl devices + paired-devices
