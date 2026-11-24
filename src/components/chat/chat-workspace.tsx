@@ -179,6 +179,8 @@ export function ChatWorkspace({
   onViseme,
   onLevel,
   onAvatarState,
+  initialAsk,
+  initialMic,
 }: {
   assistantName: string;
   userName: string;
@@ -189,6 +191,8 @@ export function ChatWorkspace({
   onViseme?: (visemes: import("@/modules/voice/viseme").TimedViseme[] | null, startMs: number | null) => void;
   onLevel?: (level: number) => void;
   onAvatarState?: (state: string) => void;
+  initialAsk?: string | null;
+  initialMic?: boolean;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [conversations, setConversations] = useState<ConversationSummary[]>(initialConversations);
@@ -259,6 +263,7 @@ export function ChatWorkspace({
   }, [resolveDevicePrefs]);
 
   const [liveEnabled, setLiveEnabled] = useState(false);
+  const [micHint, setMicHint] = useState(false);
   const [liveCaption, setLiveCaption] = useState<{ input: string; output: string }>({ input: "", output: "" });
   const liveInputRef = useRef("");
   const liveOutputRef = useRef("");
@@ -808,6 +813,30 @@ export function ChatWorkspace({
     return () => window.removeEventListener("aida:ask", handler);
   }, [sendMessage]);
 
+  // Cross-route entry: /app?ask=… sent from the shell composer on other routes.
+  // Consumed once; the URL is cleaned so refresh never resends.
+  const consumedAskRef = useRef(false);
+  useEffect(() => {
+    if (initialAsk && !consumedAskRef.current) {
+      consumedAskRef.current = true;
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("ask");
+        url.searchParams.delete("mic");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      } catch { /* keep URL as-is */ }
+      void sendMessage(initialAsk, "text");
+    }
+    if (initialMic) {
+      setMicHint(true);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("mic");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      } catch { /* keep URL as-is */ }
+    }
+  }, []);
+
   async function startVoiceSession(id: string, mode: "browser" | "server") {
     try {
       const response = await fetch("/api/voice/session", {
@@ -849,6 +878,7 @@ export function ChatWorkspace({
   }
 
   async function startListening() {
+    setMicHint(false);
     if (realtimeEnabled) {
       const id = conversationIdRef.current || (await ensureConversationForVoice());
       if (!id) return;
@@ -1011,6 +1041,16 @@ export function ChatWorkspace({
       void endVoiceSession();
     }
   }
+
+  // Shell composer mic (same-tab explicit user action) starts voice input here.
+  useEffect(() => {
+    const handler = () => {
+      setMicHint(false);
+      void startListening();
+    };
+    window.addEventListener("aida:mic", handler);
+    return () => window.removeEventListener("aida:mic", handler);
+  }, []);
 
   function stopListening() {
     if (realtimeEnabled) {
@@ -1354,6 +1394,12 @@ export function ChatWorkspace({
             <div className="banner warn" style={{ maxWidth: 760, margin: "0 auto 10px" }}>
               This reply is degraded: the assistant could not complete a verified model or tool step. Your
               message was saved.
+            </div>
+          ) : null}
+          {micHint ? (
+            <div className="banner info" style={{ maxWidth: 760, margin: "0 auto 10px" }} role="status">
+              Voice requested from the command bar — tap <strong>Start voice input</strong> below to begin.
+              The microphone only activates on your tap.
             </div>
           ) : null}
           {error ? (
