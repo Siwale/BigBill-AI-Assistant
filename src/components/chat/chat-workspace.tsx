@@ -208,6 +208,12 @@ export function ChatWorkspace({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const speechNetworkFailedRef = useRef(false);
+  // Persist network failure across reloads — Chromium without Google speech API will always fail
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("speechNetworkFailed") === "true") speechNetworkFailedRef.current = true;
+    } catch {}
+  }, []);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const micAudioContextRef = useRef<AudioContext | null>(null);
   const micRafRef = useRef<number | null>(null);
@@ -826,9 +832,8 @@ export function ChatWorkspace({
       };
 
       recognition.onerror = (event) => {
-        console.error("[SpeechRecognition] error:", event.error, event.message);
+        console.warn("[SpeechRecognition] error:", event.error, event.message);
         shouldSendRef.current = false;
-        // No second mic stream for this path, so no stopMicLevel needed — avoid clearing a non-existent analyser
         if (event.error === "not-allowed" || event.error === "service-not-allowed") {
           setVoiceError("Microphone permission was blocked. Allow the microphone in your browser, or type instead.");
         } else if (event.error === "no-speech") {
@@ -837,7 +842,8 @@ export function ChatWorkspace({
           setVoiceError("No microphone was found. Check your device, or type instead.");
         } else if (event.error === "network") {
           speechNetworkFailedRef.current = true;
-          setVoiceError("Browser speech network unavailable — switched to server transcription for next try. Tap mic again or use Realtime/Live.");
+          try { localStorage.setItem("speechNetworkFailed", "true"); } catch {}
+          setVoiceError("Browser speech network unavailable — switched to server transcription. Tap mic again (now server Whisper) or use Realtime/Live.");
         } else if (event.error !== "aborted") {
           setVoiceError(`Speech recognition stopped (${event.error}). You can try again or type.`);
         }
