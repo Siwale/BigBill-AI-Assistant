@@ -156,6 +156,18 @@ export const CONNECTORS: ConnectorDefinition[] = [
     stateNote: "Not connected. Requires OAuth to user instance.",
     scopes: [{ id: "home_assistant.read", label: "Read HA entities", description: "Read entity state.", risk: "R1", enabled: false }],
   },
+  {
+    id: "engineering",
+    name: "Engineering Intelligence",
+    description: "Local repository review via Forge — read-only, evidence-driven, companion-mediated.",
+    state: "available",
+    stateNote: "Requires companion + Forge checkout. No shell, no source mutation.",
+    scopes: [
+      { id: "engineering.repositories.read", label: "Read repositories", description: "List and inspect registered local repositories.", risk: "R1", enabled: true },
+      { id: "engineering.audit.read", label: "Read audits", description: "View audit status, events and findings.", risk: "R1", enabled: true },
+      { id: "engineering.audit.run", label: "Run repository audit", description: "Start a read-only Forge audit (bounded, secret-redacted).", risk: "R2", enabled: true },
+    ],
+  },
 ];
 
 export const DEFAULT_ONBOARDING_SCOPES = [
