@@ -228,7 +228,7 @@ export function EngineeringWorkspace() {
         </div>
 
         {/* CENTRE: Aida stage + vertical timeline */}
-        <div style={{ display: "flex", gap: 16, alignItems: "stretch", minWidth: 0 }}>
+        <div className="aida-centre" style={{ display: "flex", gap: 16, alignItems: "stretch", minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <AidaAvatarStage state={coreState} />
             <div style={{ textAlign: "center", marginTop: 8 }}>

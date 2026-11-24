@@ -1,6 +1,5 @@
 :root {
-  --paper: #f5f2ea;
-  --paper-strong: #efeae0;
+  --paper: #f5f2ea;  --paper-strong: #efeae0;
   --surface: #fffdf8;
   --surface-2: #faf7f0;
   --ink: #1b231f;
@@ -26,6 +25,51 @@
   --shadow: 0 1px 2px rgba(27, 35, 31, 0.05), 0 12px 32px rgba(27, 35, 31, 0.06);
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+
+  /* Loop 4 canonical Aida tokens — single source of truth (Section 7.1).
+     Defined on :root so they resolve in every shell, panel and drawer. */
+  --aida-bg-0: #03070b;
+  --aida-bg-1: #030b13;
+  --aida-bg-2: #020f1a;
+  --aida-surface-1: #031423;
+  --aida-surface-2: #052038;
+  --aida-surface-3: #062644;
+  --aida-surface-4: #072f52;
+  --aida-border: #0b4376;
+  --aida-border-strong: #0d4f8b;
+  --aida-blue-1: #0b4376;
+  --aida-blue-2: #0e5da4;
+  --aida-blue-3: #1d75b5;
+  --aida-blue-4: #187ac4;
+  --aida-cyan-1: #1598ec;
+  --aida-cyan-2: #1f9fe9;
+  --aida-cyan-3: #31baf2;
+  --aida-cyan-4: #48c9f4;
+  --aida-cyan-5: #5ad5fb;
+  --aida-amber-muted: #9c6b41;
+  --aida-amber: #be8d59;
+  --aida-amber-bright: #dbae7d;
+  --aida-success: #1fb580;
+  --aida-text: #afd6ea;
+  --aida-text-strong: #e2f2fa;
+  --aida-text-muted: #8492a2;
+  --aida-text-dim: #616d7f;
+  --aida-neutral: #737e8d;
+  --aida-error: #e85b62;
+  /* Canonical aliases from the reference analysis */
+  --aida-bg: #03070b;
+  --aida-bg-secondary: #030b13;
+  --aida-panel: #031423;
+  --aida-panel-raised: #052038;
+  --aida-panel-active: #062644;
+  --aida-blue: #1598ec;
+  --aida-cyan-blue: #1f9fe9;
+  --aida-cyan: #31baf2;
+  --aida-cyan-bright: #48c9f4;
+  --aida-hologram: #5ad5fb;
+  --aida-amber: #be8d59;
+  --aida-amber-bright: #dbae7d;
+  --aida-success: #1fb580;
 }
 
 .theme-mission-control {
@@ -99,36 +143,7 @@
   --cmd-glow: 0 0 20px rgba(0, 229, 255, 0.3), 0 0 40px rgba(0, 229, 255, 0.1);
   --cmd-radius: 16px;
   --cmd-radius-sm: 10px;
-
-  /* Loop 4 reference-sampled tokens (Section 2 of loop spec) */
-  --aida-bg-0: #03070b;
-  --aida-bg-1: #030b13;
-  --aida-bg-2: #020f1a;
-  --aida-surface-1: #031423;
-  --aida-surface-2: #052038;
-  --aida-surface-3: #062644;
-  --aida-surface-4: #072f52;
-  --aida-border: #0b4376;
-  --aida-border-strong: #0d4f8b;
-  --aida-blue-1: #0b4376;
-  --aida-blue-2: #0e5da4;
-  --aida-blue-3: #1d75b5;
-  --aida-blue-4: #187ac4;
-  --aida-cyan-1: #1598ec;
-  --aida-cyan-2: #1f9fe9;
-  --aida-cyan-3: #31baf2;
-  --aida-cyan-4: #48c9f4;
-  --aida-cyan-5: #5ad5fb;
-  --aida-amber-muted: #9c6b41;
-  --aida-amber: #be8d59;
-  --aida-amber-bright: #dbae7d;
-  --aida-success: #1fb580;
-  --aida-text: #afd6ea;
-  --aida-text-strong: #e2f2fa;
-  --aida-text-muted: #8492a2;
-  --aida-text-dim: #616d7f;
-  --aida-neutral: #737e8d;
-  --aida-error: #e85b62;
+  /* Canonical --aida-* tokens live on :root (single source of truth). */
 }
 
 /* Loop 4 reference-accurate command-centre shell. Dark navy throughout —
@@ -311,6 +326,9 @@
   .aida-grid-eng {
     grid-template-columns: 1fr;
   }
+  .aida-grid-eng > * {
+    min-width: 0;
+  }
   .aida-right-stack {
     grid-template-columns: 1fr;
   }
@@ -323,6 +341,24 @@
   .aida-topbar {
     height: 64px;
     padding: 0 14px;
+    gap: 10px;
+  }
+  .aida-brand-name {
+    font-size: 20px;
+  }
+}
+@media (max-width: 720px) {
+  .aida-loop-badge {
+    display: none;
+  }
+  .aida-topbar {
+    padding: 0 12px;
+  }
+  .aida-centre {
+    flex-direction: column;
+  }
+  .aida-timeline {
+    width: 100% !important;
   }
 }
 /* Timeline */

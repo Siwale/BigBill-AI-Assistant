@@ -71,6 +71,27 @@ describe("Loop 4 reference accuracy", () => {
     expect(model).toContain("code?: string");
   });
 
+  it("cross-route composer handoff continues the same conversation", () => {
+    const shell = src("src/components/command/command-shell.tsx");
+    expect(shell).toContain("/app?ask=");
+    expect(shell).toContain("/app?mic=1");
+    expect(shell).toContain('pathname === "/app"');
+    const page = src("src/app/app/page.tsx");
+    expect(page).toContain("ask?: string");
+    const chat = src("src/components/chat/chat-workspace.tsx");
+    expect(chat).toContain("initialAsk");
+    expect(chat).toContain("aida:mic");
+    expect(chat).toContain("setMicHint");
+  });
+
+  it("canonical palette lives on :root (no unresolved shell tokens)", () => {
+    const css = src("src/app/globals.css");
+    const rootBlock = css.slice(css.indexOf(":root {"), css.indexOf("/* Loop 4 — Aida Command Environment"));
+    for (const token of ["--aida-bg-0", "--aida-text:", "--aida-cyan-4", "--aida-border:"]) {
+      expect(rootBlock).toContain(token);
+    }
+  });
+
   it("archive tools exist for retrieval with source references", () => {
     const archive = src("src/modules/conversations/archive.ts");
     expect(archive).toContain("searchArchivedConversations");

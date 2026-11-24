@@ -78,6 +78,9 @@ export function CommandShell({ assistantName, userName, workspaceName, children,
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [voiceState] = useState<"idle" | "listening">("idle");
+  // Command/Home owns the full conversation composer; the persistent shell
+  // composer serves every other route and hands off into the same conversation.
+  const isCommandHome = pathname === "/app";
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -180,6 +183,7 @@ export function CommandShell({ assistantName, userName, workspaceName, children,
         <main style={{ flex: 1, padding: 20, minWidth: 0, overflow: "auto" }}>{children}</main>
       </div>
 
+      {isCommandHome ? null : (
       <footer style={{ padding: "12px 20px 18px", background: "transparent" }}>
         <form
           className="aida-composer"
@@ -190,10 +194,28 @@ export function CommandShell({ assistantName, userName, workspaceName, children,
             const data = new FormData(e.currentTarget);
             const text = String(data.get("q") ?? "").trim();
             if (!text) return;
-            window.dispatchEvent(new CustomEvent("aida:ask", { detail: { text } }));
+            e.currentTarget.reset();
+            if (isCommandHome) {
+              window.dispatchEvent(new CustomEvent("aida:ask", { detail: { text } }));
+            } else {
+              // No conversation surface on this route — hand into Command's
+              // continuous conversation; it auto-sends once and cleans the URL.
+              router.push(`/app?ask=${encodeURIComponent(text)}`);
+            }
           }}
         >
-          <button type="button" className="aida-mic" aria-label={voiceState === "listening" ? "Stop listening" : "Voice input (explicit action)"}>
+          <button
+            type="button"
+            className="aida-mic"
+            aria-label="Voice input (explicit action)"
+            onClick={() => {
+              if (isCommandHome) {
+                window.dispatchEvent(new CustomEvent("aida:mic"));
+              } else {
+                router.push("/app?mic=1");
+              }
+            }}
+          >
             {voiceState === "listening" ? <Square size={16} /> : <Mic size={16} />}
           </button>
           <input name="q" placeholder="Ask Aida anything…" aria-label="Ask Aida anything" autoComplete="off" />
@@ -202,6 +224,7 @@ export function CommandShell({ assistantName, userName, workspaceName, children,
           </span>
         </form>
       </footer>
+      )}
 
       <style>{`
         @media (max-width: 900px) {

@@ -13,9 +13,11 @@ type Props = {
   activeConversationId: string | null;
   initialMessages: { id: string; role: string; content: string; channel: string; citations: { sourceId: string; title: string; chunkIndex: number; source?: string }[]; toolActivity: { toolId: string; status: string; summary?: string; permissionRequired?: { connectorId: string; connectorName: string; scopes: string[] } }[]; createdAt: string }[];
   voice: { provider?: string; voiceId?: string; language?: string; rate?: number };
+  initialAsk?: string | null;
+  initialMic?: boolean;
 };
 
-export function CommandHome({ assistantName, userName, conversations, activeConversationId, initialMessages, voice }: Props) {
+export function CommandHome({ assistantName, userName, conversations, activeConversationId, initialMessages, voice, initialAsk, initialMic }: Props) {
   const [visemes, setVisemes] = useState<TimedViseme[] | null>(null);
   const [audioStartMs, setAudioStartMs] = useState<number | null>(null);
   const [avatarState, setAvatarState] = useState<AidaCoreState>("idle");
@@ -42,6 +44,8 @@ export function CommandHome({ assistantName, userName, conversations, activeConv
         activeConversationId={activeConversationId}
         initialMessages={initialMessages}
         voice={voice}
+        initialAsk={initialAsk ?? null}
+        initialMic={initialMic ?? false}
         onViseme={(v, start) => {
           setVisemes(v);
           setAudioStartMs(start);

@@ -4,14 +4,14 @@ import { CommandHome } from "@/components/command/command-home";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = Promise<{ c?: string }>;
+type SearchParams = Promise<{ c?: string; ask?: string; mic?: string }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function AssistantPage({ searchParams }: { searchParams: SearchParams }) {
   const session = await requireOnboardedPageSession();
   const effective = await (await import("@/modules/profile/user-config")).getEffectiveAssistant(session.user.tenantId, session.user.id);
-  const { c } = await searchParams;
+  const { c, ask, mic } = await searchParams;
 
   const conversations = await listConversations(session.user.tenantId, session.user.id);
   // Continuous active conversation: default to most recent non-archived, or create one internally
@@ -69,6 +69,8 @@ export default async function AssistantPage({ searchParams }: { searchParams: Se
         language: session.profile.voiceConfig.language,
         rate: session.profile.voiceConfig.rate,
       }}
+      initialAsk={typeof ask === "string" && ask.trim() ? ask.slice(0, 2000) : null}
+      initialMic={mic === "1"}
     />
   );
 }
