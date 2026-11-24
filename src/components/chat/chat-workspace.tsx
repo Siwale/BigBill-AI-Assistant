@@ -462,7 +462,8 @@ export function ChatWorkspace({
     }
   }, []);
 
-  const startMicLevel = useCallback(async () => {
+  // Kept for diagnostics — not used in SpeechRecognition path (second getUserMedia would steal mic and cut out)
+  const _startMicLevel = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: devicePrefs.inputId ? { deviceId: { exact: devicePrefs.inputId } } : true,
@@ -823,16 +824,19 @@ export function ChatWorkspace({
       };
 
       recognition.onerror = (event) => {
+        console.error("[SpeechRecognition] error:", event.error, event.message);
         shouldSendRef.current = false;
-        stopMicLevel();
+        // No second mic stream for this path, so no stopMicLevel needed — avoid clearing a non-existent analyser
         if (event.error === "not-allowed" || event.error === "service-not-allowed") {
           setVoiceError("Microphone permission was blocked. Allow the microphone in your browser, or type instead.");
         } else if (event.error === "no-speech") {
           setVoiceError("No speech was heard. Try again or type instead.");
         } else if (event.error === "audio-capture") {
           setVoiceError("No microphone was found. Check your device, or type instead.");
+        } else if (event.error === "network") {
+          setVoiceError("Speech service network error — check connection and try again, or use Realtime/Live.");
         } else if (event.error !== "aborted") {
-          setVoiceError("Speech recognition stopped. You can try again or type.");
+          setVoiceError(`Speech recognition stopped (${event.error}). You can try again or type.`);
         }
         setVoiceState("idle");
         void endVoiceSession();
@@ -854,7 +858,7 @@ export function ChatWorkspace({
       try {
         recognition.start();
         setVoiceState("listening");
-        void startMicLevel();
+        // Do not open a second getUserMedia for visualizer — SpeechRecognition has no MediaStream and a second stream can steal the mic (audio-capture / network) and cut out
       } catch {
         setVoiceError("The microphone could not start. Check your browser permissions.");
         setVoiceState("idle");
