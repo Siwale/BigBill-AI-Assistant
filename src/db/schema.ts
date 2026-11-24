@@ -57,7 +57,7 @@ export const assistantProfiles = pgTable(
     displayName: text("display_name"),
     ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
     personaConfig: jsonb("persona_config")
-      .$type<{ tone?: string; pronouns?: string; greetingStyle?: string }>()
+      .$type<{ tone?: string; pronouns?: string; greetingStyle?: string; theme?: string }>()
       .notNull()
       .default({}),
     voiceConfig: jsonb("voice_config")
@@ -415,6 +415,125 @@ export const modelUsage = pgTable(
   (t) => [index("model_usage_tenant_idx").on(t.tenantId, t.createdAt)],
 );
 
+export const devicePreferences = pgTable(
+  "device_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    preferredInputLabel: text("preferred_input_label"),
+    preferredOutputLabel: text("preferred_output_label"),
+    lastTestAt: timestamp("last_test_at", { withTimezone: true }),
+    lastTestResult: jsonb("last_test_result").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("device_preferences_tenant_user_uq").on(t.tenantId, t.userId)],
+);
+
+export const meetingRecords = pgTable(
+  "meeting_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    title: text("title").notNull(),
+    meetingUrl: text("meeting_url"),
+    startAt: timestamp("start_at", { withTimezone: true }),
+    endAt: timestamp("end_at", { withTimezone: true }),
+    attendees: jsonb("attendees").$type<string[]>().notNull().default([]),
+    transcriptSource: text("transcript_source"),
+    summary: text("summary"),
+    decisions: jsonb("decisions").$type<string[]>().notNull().default([]),
+    questions: jsonb("questions").$type<string[]>().notNull().default([]),
+    risks: jsonb("risks").$type<string[]>().notNull().default([]),
+    status: text("status").notNull().default("artifact_pending"),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("meeting_records_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+export const meetingTranscriptSegments = pgTable(
+  "meeting_transcript_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    meetingId: uuid("meeting_id")
+      .notNull()
+      .references(() => meetingRecords.id, { onDelete: "cascade" }),
+    speaker: text("speaker"),
+    text: text("text").notNull(),
+    startMs: integer("start_ms"),
+    endMs: integer("end_ms"),
+    provider: text("provider"),
+    sourceRef: text("source_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("meeting_segments_meeting_idx").on(t.meetingId, t.startMs)],
+);
+
+export const meetingActionCandidates = pgTable(
+  "meeting_action_candidates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    meetingId: uuid("meeting_id")
+      .notNull()
+      .references(() => meetingRecords.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    proposedOwner: text("proposed_owner"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    priority: text("priority").notNull().default("normal"),
+    confidence: text("confidence").notNull().default("0.5"),
+    status: text("status").notNull().default("proposed"),
+    evidenceSegmentIds: jsonb("evidence_segment_ids").$type<string[]>().notNull().default([]),
+    evidenceQuote: text("evidence_quote"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("meeting_actions_meeting_idx").on(t.meetingId, t.status)],
+);
+
+export const observations = pgTable(
+  "observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    sourceType: text("source_type").notNull(),
+    mimeType: text("mime_type").notNull(),
+    byteSize: integer("byte_size").notNull().default(0),
+    storageKey: text("storage_key"),
+    caption: text("caption"),
+    analysis: text("analysis"),
+    analysisModel: text("analysis_model"),
+    retention: text("retention").notNull().default("transient"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("observations_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
 export type Tenant = typeof tenants.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type AssistantProfile = typeof assistantProfiles.$inferSelect;
@@ -428,3 +547,8 @@ export type PermissionGrant = typeof permissionGrants.$inferSelect;
 export type ActionRecord = typeof actions.$inferSelect;
 export type KnowledgeDocument = typeof knowledgeDocuments.$inferSelect;
 export type VoiceSession = typeof voiceSessions.$inferSelect;
+export type DevicePreference = typeof devicePreferences.$inferSelect;
+export type MeetingRecord = typeof meetingRecords.$inferSelect;
+export type MeetingTranscriptSegment = typeof meetingTranscriptSegments.$inferSelect;
+export type MeetingActionCandidate = typeof meetingActionCandidates.$inferSelect;
+export type Observation = typeof observations.$inferSelect;

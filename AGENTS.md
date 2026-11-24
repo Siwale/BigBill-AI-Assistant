@@ -13,7 +13,7 @@ These rules apply to every AI agent, script or automation in this repository.
 
 ## Non-negotiables
 
-- **Do not start Loop 2.** Loop 1 close-out only.
+- **Loop 2 active on feature branch `feat/loop2-embodied-voice-device-vision-meetings`.** Loop 1 baseline `33182f2` is protected on `main`.
 - **No hardcoded assistant name.** It is user-assigned, stored in `assistant_profiles.display_name`, tenant-scoped and changeable.
 - **Voice is a first-release requirement.** It must be real speech input and output, not a decorative button.
 - **Text and voice share one assistant**: same conversation, profile, memory, permissions, tools and audit.
