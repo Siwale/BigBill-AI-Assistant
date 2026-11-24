@@ -29,6 +29,13 @@
       "when": 1795518000000,
       "tag": "0003_fix_composite_and_task_id",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795523847948,
+      "tag": "0004_amusing_bug",
+      "breakpoints": true
     }
   ]
 }

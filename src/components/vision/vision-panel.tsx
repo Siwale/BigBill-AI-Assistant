@@ -20,6 +20,10 @@ export function VisionPanel({ conversationId }: Props) {
   const [attachMessage, setAttachMessage] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>("");
+  const [visualSessionId, setVisualSessionId] = useState<string | null>(null);
+  const [boundedActive, setBoundedActive] = useState(false);
+  const boundedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const boundedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void navigator.mediaDevices
@@ -75,13 +79,58 @@ export function VisionPanel({ conversationId }: Props) {
     }
   }, [selectedCamera, sourceType]);
 
+  const startBounded = useCallback(async () => {
+    setError(""); setMessage("Starting bounded visual session (1 frame/2s, 2-min limit)…");
+    try {
+      const res = await fetch("/api/visual/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: sourceType, conversationId: conversationId ?? undefined, sampleIntervalMs: 2000, maxDurationMs: 120000 }) });
+      const data = await res.json() as { session?: { id: string } };
+      if (!res.ok || !data.session) throw new Error("Could not create visual session");
+      setVisualSessionId(data.session.id);
+      await start();
+      setBoundedActive(true);
+      setMessage("Bounded session active — sampling 1 frame every 2s. Stop anytime.");
+      const doCapture = async () => {
+        const video = videoRef.current; const canvas = canvasRef.current;
+        if (!video || !canvas || !streamRef.current) return;
+        canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+        const ctx = canvas.getContext("2d"); if (!ctx) return;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.7));
+        if (!blob) return;
+        const form = new FormData(); form.append("image", blob, "bounded.jpg"); form.append("sourceType", sourceType);
+        if (conversationId) form.append("conversationId", conversationId);
+        form.append("caption", "Bounded session frame — describe concisely");
+        try { const r = await fetch("/api/vision/observe", { method: "POST", body: form }); const d = await r.json() as { observation?: { analysis?: string } }; if (d.observation?.analysis) setAnalysis(d.observation.analysis); } catch {}
+      };
+      boundedTimerRef.current = setInterval(() => { void doCapture(); }, 2000);
+      boundedTimeoutRef.current = setTimeout(() => {
+        setBoundedActive(false);
+        setMessage("Bounded session reached 2-min limit — stopped. Ask to extend if needed.");
+        void fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: data.session!.id, reason: "timeout" }) }).catch(()=>{});
+        if (boundedTimerRef.current) clearInterval(boundedTimerRef.current);
+        setVisualSessionId(null);
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        setActive(false);
+      }, 120000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bounded session failed");
+    }
+  }, [sourceType, conversationId, start]);
+
   const stop = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setActive(false);
+    setBoundedActive(false);
+    if (boundedTimerRef.current) { clearInterval(boundedTimerRef.current); boundedTimerRef.current = null; }
+    if (boundedTimeoutRef.current) { clearTimeout(boundedTimeoutRef.current); boundedTimeoutRef.current = null; }
+    if (visualSessionId) {
+      void fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: visualSessionId, reason: "user_request" }) }).catch(()=>{});
+      setVisualSessionId(null);
+    }
     setMessage("Stopped. No frames are being sent.");
-  }, []);
+  }, [visualSessionId]);
 
   const capture = useCallback(async () => {
     const video = videoRef.current;
@@ -191,6 +240,8 @@ export function VisionPanel({ conversationId }: Props) {
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (boundedTimerRef.current) clearInterval(boundedTimerRef.current);
+      if (boundedTimeoutRef.current) clearTimeout(boundedTimeoutRef.current);
       if (captured) URL.revokeObjectURL(captured);
     };
   }, [captured]);
@@ -221,12 +272,18 @@ export function VisionPanel({ conversationId }: Props) {
             </select>
           ) : null}
           {!active ? (
-            <button className="btn btn-primary btn-sm" type="button" onClick={start}>
-              Use {sourceType}
-            </button>
+            <>
+              <button className="btn btn-primary btn-sm" type="button" onClick={start}>
+                Use {sourceType}
+              </button>
+              <button className="btn btn-sm" type="button" onClick={startBounded}>
+                Watch briefly (2 min)
+              </button>
+            </>
           ) : (
             <>
               <button className="btn btn-primary btn-sm" type="button" onClick={capture}>Capture & analyze</button>
+              {boundedActive ? <span className="badge badge-green">bounded sampling 1/2s</span> : null}
               <button className="btn btn-sm btn-danger" type="button" onClick={stop}>Stop</button>
             </>
           )}

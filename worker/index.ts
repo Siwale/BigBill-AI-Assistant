@@ -12,7 +12,7 @@ import { and, eq, isNull, lte, ne, sql } from "drizzle-orm";
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import { db } from "../src/db/client";
-import { inboxEvents, observations, outboxEvents, tasks } from "../src/db/schema";
+import { inboxEvents, observations, outboxEvents, tasks, visualSessions } from "../src/db/schema";
 import { getEnv } from "../src/lib/env";
 import { log } from "../src/lib/logger";
 import { recordAudit } from "../src/modules/audit/service";
@@ -25,6 +25,7 @@ type SweepResult = {
   inbox: number;
   overdueIncidents: number;
   expiredObservations: number;
+  expiredVisualSessions: number;
 };
 
 async function drainOutbox(): Promise<number> {
@@ -122,14 +123,25 @@ async function expireObservations(): Promise<number> {
   return deleted.length;
 }
 
+async function expireVisualSessions(): Promise<number> {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const deleted = await db
+    .delete(visualSessions)
+    .where(and(lte(visualSessions.createdAt, cutoff), eq(visualSessions.status, "stopped")))
+    .returning({ id: visualSessions.id });
+  if (deleted.length > 0) log("info", "visual_sessions_expired", { count: deleted.length });
+  return deleted.length;
+}
+
 async function sweep(): Promise<SweepResult> {
-  const [outbox, inbox, overdueIncidents, expiredObservations] = await Promise.all([
+  const [outbox, inbox, overdueIncidents, expiredObservations, expiredVisualSessions] = await Promise.all([
     drainOutbox(),
     processInbox(),
     watchOverdueTasks(),
     expireObservations(),
+    expireVisualSessions(),
   ]);
-  return { outbox, inbox, overdueIncidents, expiredObservations };
+  return { outbox, inbox, overdueIncidents, expiredObservations, expiredVisualSessions };
 }
 
 async function main(): Promise<void> {

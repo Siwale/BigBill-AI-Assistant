@@ -736,6 +736,135 @@ export const disabledTools: ToolDefinition[] = [
   }),
 ];
 
+export const visionCaptureTool: ToolDefinition = {
+  id: "vision.request_camera_snapshot",
+  name: "Capture camera observation",
+  description: "Capture a user-approved camera frame and analyze what is visible. Requires explicit camera permission.",
+  connectorId: "vision",
+  risk: "R2",
+  requiredScopes: ["vision.capture"],
+  enabled: true,
+  idempotency: "not_idempotent",
+  timeoutMs: 15_000,
+  inputSchema: z.object({ caption: z.string().max(500).optional() }),
+  parameters: requestShape({ caption: { type: "string" } }),
+  summarize: () => "Capture camera observation",
+  execute: async (): Promise<ToolSuccess> => {
+    return { ok: true, summary: "Vision capture requires explicit user camera action in the UI — open Vision and click Use camera.", data: { requiresUserAction: true } };
+  },
+};
+
+export const devicesListTool: ToolDefinition = {
+  id: "devices.list_capabilities",
+  name: "List device capabilities",
+  description: "List browser and companion device capabilities with honest status.",
+  connectorId: "devices",
+  risk: "R1",
+  requiredScopes: ["devices.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 5_000,
+  inputSchema: z.object({}),
+  parameters: noArgs,
+  summarize: () => "List device capabilities",
+  execute: async (): Promise<ToolSuccess> => {
+    const { capabilityMatrix } = await import("@/modules/devices/service");
+    return { ok: true, summary: "Listed device capabilities.", data: { matrix: capabilityMatrix() } };
+  },
+};
+
+export const musicSearchTool: ToolDefinition = {
+  id: "music.search",
+  name: "Search music",
+  description: "Search local favorites and catalog metadata (no audio bytes sent to model).",
+  connectorId: "music",
+  risk: "R1",
+  requiredScopes: ["music.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 5_000,
+  inputSchema: z.object({ query: z.string().min(1).max(200) }),
+  parameters: requestShape({ query: { type: "string" } }, ["query"]),
+  summarize: (input) => `Search music for “${(input as { query?: string }).query ?? ""}”`,
+  execute: async (raw, ctx): Promise<ToolSuccess> => {
+    const { query } = z.object({ query: z.string().min(1).max(200) }).parse(raw);
+    const { listFavorites } = await import("@/modules/music/service");
+    const favs = await listFavorites(ctx.tenantId, ctx.userId);
+    const hits = favs.filter((f) => f.title.toLowerCase().includes(query.toLowerCase())).slice(0, 5);
+    return { ok: true, summary: hits.length ? `Found ${hits.length} favorite(s).` : "No matching favorites.", data: { hits } };
+  },
+};
+
+export const musicPlayTool: ToolDefinition = {
+  id: "music.play",
+  name: "Play music",
+  description: "Play a favorite on a permitted target. Spotify voice blocked; Apple Music gated.",
+  connectorId: "music",
+  risk: "R2",
+  requiredScopes: ["music.play"],
+  enabled: true,
+  idempotency: "not_idempotent",
+  timeoutMs: 10_000,
+  inputSchema: z.object({ provider: z.string().min(2).max(30), providerItemId: z.string().min(1).max(200) }),
+  parameters: requestShape({ provider: { type: "string" }, providerItemId: { type: "string" } }, ["provider", "providerItemId"]),
+  summarize: (input) => `Play ${String((input as { providerItemId?: string }).providerItemId ?? "")}`,
+  execute: async (raw, _ctx): Promise<ToolSuccess> => {
+    const { provider } = z.object({ provider: z.string(), providerItemId: z.string() }).parse(raw);
+    if (provider === "spotify") throw new Error("Spotify voice control is blocked by policy until written permission.");
+    if (provider === "apple_music") throw new Error("Apple Music gated behind legal review — not enabled.");
+    return { ok: true, summary: `Play requires explicit user target selection in the Music panel for ${provider}.`, data: { requiresUserAction: true, provider } };
+  },
+};
+
+export const moviesSearchTool: ToolDefinition = {
+  id: "movies.search",
+  name: "Search movies",
+  description: "Search watchlist and manual titles; legal availability via licensed provider or handoff.",
+  connectorId: "movies",
+  risk: "R1",
+  requiredScopes: ["movies.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 5_000,
+  inputSchema: z.object({ query: z.string().min(1).max(200) }),
+  parameters: requestShape({ query: { type: "string" } }, ["query"]),
+  summarize: (input) => `Search movies for “${(input as { query?: string }).query ?? ""}”`,
+  execute: async (raw, ctx): Promise<ToolSuccess> => {
+    const { query } = z.object({ query: z.string().min(1).max(200) }).parse(raw);
+    const { listWatchlist, whereToWatch } = await import("@/modules/movies/service");
+    const list = await listWatchlist(ctx.tenantId, ctx.userId);
+    const hits = list.filter((m) => m.title.toLowerCase().includes(query.toLowerCase())).slice(0, 5);
+    const availability = whereToWatch();
+    return { ok: true, summary: hits.length ? `Found ${hits.length} in watchlist.` : "No watchlist matches — try official search handoff.", data: { hits, availability } };
+  },
+};
+
+export const moviesWhereToWatchTool: ToolDefinition = {
+  id: "movies.where_to_watch",
+  name: "Where to watch",
+  description: "Get legal watch options for a title (ZM default, licensed provider or handoff).",
+  connectorId: "movies",
+  risk: "R1",
+  requiredScopes: ["movies.read"],
+  enabled: true,
+  idempotency: "naturally_idempotent",
+  timeoutMs: 5_000,
+  inputSchema: z.object({ title: z.string().min(1).max(300), regionCode: z.string().length(2).optional() }),
+  parameters: requestShape({ title: { type: "string" }, regionCode: { type: "string" } }, ["title"]),
+  summarize: (input) => `Where to watch “${(input as { title?: string }).title ?? ""}”`,
+  execute: async (raw): Promise<ToolSuccess> => {
+    const { title, regionCode } = z.object({ title: z.string().min(1).max(300), regionCode: z.string().length(2).optional() }).parse(raw);
+    const { whereToWatch } = await import("@/modules/movies/service");
+    const avail = whereToWatch();
+    const handoff = `https://www.justwatch.com/zm/search?q=${encodeURIComponent(title)}`;
+    return {
+      ok: true,
+      summary: avail.status === "handoff" ? "No licensed provider active — search handoff." : "Availability verified.",
+      data: { title, regionCode: regionCode ?? "ZM", availability: avail, handoffUrl: handoff },
+    };
+  },
+};
+
 export const TOOL_REGISTRY: ToolDefinition[] = [
   createTaskTool,
   listTasksTool,
@@ -748,6 +877,12 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   searchKnowledgeTool,
   rememberTool,
   reportIncidentTool,
+  visionCaptureTool,
+  devicesListTool,
+  musicSearchTool,
+  musicPlayTool,
+  moviesSearchTool,
+  moviesWhereToWatchTool,
   ...disabledTools,
 ];
 

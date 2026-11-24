@@ -538,6 +538,142 @@ export const observations = pgTable(
   (t) => [index("observations_tenant_idx").on(t.tenantId, t.createdAt)],
 );
 
+export const visualSessions = pgTable(
+  "visual_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    source: text("source").notNull(),
+    status: text("status").notNull().default("active"),
+    consentAt: timestamp("consent_at", { withTimezone: true }).notNull().defaultNow(),
+    sampleIntervalMs: integer("sample_interval_ms").notNull().default(2000),
+    maxDurationMs: integer("max_duration_ms").notNull().default(120000),
+    sampleCount: integer("sample_count").notNull().default(0),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endedReason: text("ended_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("visual_sessions_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+export const deviceConnections = pgTable(
+  "device_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    adapter: text("adapter").notNull(),
+    transport: text("transport").notNull(),
+    deviceClass: text("device_class").notNull(),
+    providerDeviceIdHash: text("provider_device_id_hash").notNull(),
+    displayName: text("display_name").notNull(),
+    friendlyName: text("friendly_name"),
+    capabilities: jsonb("capabilities").$type<string[]>().notNull().default([]),
+    status: text("status").notNull().default("available"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    diagnostic: text("diagnostic"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("device_connections_tenant_idx").on(t.tenantId, t.userId, t.adapter)],
+);
+
+export const localCompanionPairings = pgTable(
+  "local_companion_pairings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    machineLabel: text("machine_label").notNull(),
+    publicKeyFingerprint: text("public_key_fingerprint").notNull(),
+    status: text("status").notNull().default("paired"),
+    pairedAt: timestamp("paired_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("local_companion_pairings_tenant_idx").on(t.tenantId, t.userId, t.status)],
+);
+
+export const musicFavorites = pgTable(
+  "music_favorites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    itemType: text("item_type").notNull(),
+    providerItemId: text("provider_item_id").notNull(),
+    title: text("title").notNull(),
+    artist: text("artist"),
+    artworkUrl: text("artwork_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("music_favorites_tenant_user_item_uq").on(t.tenantId, t.userId, t.provider, t.providerItemId)],
+);
+
+export const moviePreferences = pgTable(
+  "movie_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    likedTitles: jsonb("liked_titles").$type<string[]>().notNull().default([]),
+    dislikedTitles: jsonb("disliked_titles").$type<string[]>().notNull().default([]),
+    favoriteGenres: jsonb("favorite_genres").$type<string[]>().notNull().default([]),
+    favoriteActors: jsonb("favorite_actors").$type<string[]>().notNull().default([]),
+    regionCode: text("region_code").notNull().default("ZM"),
+    runtimeMin: integer("runtime_min"),
+    runtimeMax: integer("runtime_max"),
+    contentRating: text("content_rating"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("movie_preferences_tenant_user_uq").on(t.tenantId, t.userId)],
+);
+
+export const movieWatchlist = pgTable(
+  "movie_watchlist",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().default("manual"),
+    providerTitleId: text("provider_title_id").notNull(),
+    title: text("title").notNull(),
+    year: integer("year"),
+    status: text("status").notNull().default("want_to_watch"),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+    watchedAt: timestamp("watched_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("movie_watchlist_tenant_user_title_uq").on(t.tenantId, t.userId, t.providerTitleId), index("movie_watchlist_tenant_idx").on(t.tenantId, t.userId, t.status)],
+);
+
 export type Tenant = typeof tenants.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type AssistantProfile = typeof assistantProfiles.$inferSelect;
@@ -556,3 +692,9 @@ export type MeetingRecord = typeof meetingRecords.$inferSelect;
 export type MeetingTranscriptSegment = typeof meetingTranscriptSegments.$inferSelect;
 export type MeetingActionCandidate = typeof meetingActionCandidates.$inferSelect;
 export type Observation = typeof observations.$inferSelect;
+export type VisualSession = typeof visualSessions.$inferSelect;
+export type DeviceConnection = typeof deviceConnections.$inferSelect;
+export type LocalCompanionPairing = typeof localCompanionPairings.$inferSelect;
+export type MusicFavorite = typeof musicFavorites.$inferSelect;
+export type MoviePreference = typeof moviePreferences.$inferSelect;
+export type MovieWatchlistEntry = typeof movieWatchlist.$inferSelect;
