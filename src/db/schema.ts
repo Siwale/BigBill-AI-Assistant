@@ -504,10 +504,14 @@ export const meetingActionCandidates = pgTable(
     status: text("status").notNull().default("proposed"),
     evidenceSegmentIds: jsonb("evidence_segment_ids").$type<string[]>().notNull().default([]),
     evidenceQuote: text("evidence_quote"),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("meeting_actions_meeting_idx").on(t.meetingId, t.status)],
+  (t) => [
+    index("meeting_actions_meeting_idx").on(t.meetingId, t.status),
+    uniqueIndex("meeting_candidates_task_uq").on(t.taskId),
+  ],
 );
 
 export const observations = pgTable(
