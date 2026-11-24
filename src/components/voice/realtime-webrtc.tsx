@@ -47,14 +47,16 @@ export function useRealtimeVoice(params: {
     }
     pcRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
+    const hadStream = Boolean(streamRef.current);
     streamRef.current = null;
+    if (hadStream) params.onStream?.(null);
     if (audioElRef.current) {
       audioElRef.current.pause();
       audioElRef.current.srcObject = null;
       audioElRef.current.remove();
       audioElRef.current = null;
     }
-  }, []);
+  }, [params]);
 
   const connect = useCallback(async (conversationId: string | null) => {
     if (!conversationId) {
