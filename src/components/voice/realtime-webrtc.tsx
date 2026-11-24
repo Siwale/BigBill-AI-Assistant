@@ -58,10 +58,10 @@ export function useRealtimeVoice(params: {
     }
   }, [params]);
 
-  const connect = useCallback(async (conversationId: string | null) => {
+  const connect = useCallback(async (conversationId: string | null): Promise<boolean> => {
     if (!conversationId) {
       set("error", "No conversation selected. Start a conversation first.");
-      return;
+      return false;
     }
     set("connecting");
     try {
@@ -73,7 +73,7 @@ export function useRealtimeVoice(params: {
       const data = (await res.json()) as { ephemeral?: Ephemeral; error?: { message?: string; code?: string } };
       if (!res.ok || !data.ephemeral?.clientSecret) {
         set("error", data.error?.message ?? "Realtime not available. Using fallback.");
-        return;
+        return false;
       }
       const ephemeral = data.ephemeral;
 
@@ -215,11 +215,13 @@ export function useRealtimeVoice(params: {
         throw new Error("Realtime SDP answer malformed.");
       }
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Realtime connection failed.";
       set("error", msg);
       cleanup();
       set("disconnected");
+      return false;
     }
   }, [params, set, cleanup]);
 

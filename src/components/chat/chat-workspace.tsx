@@ -686,8 +686,14 @@ export function ChatWorkspace({
     if (realtimeEnabled) {
       const id = conversationIdRef.current || (await ensureConversationForVoice());
       if (!id) return;
-      if (realtime.state !== "connected") await realtime.connect(id);
-      return;
+      if (realtime.state !== "connected") {
+        const ok = await realtime.connect(id);
+        if (ok) return;
+        setVoiceError((prev) => prev || "Realtime unavailable — using server transcription fallback.");
+        // fall through to legacy path automatically
+      } else {
+        return;
+      }
     }
     if (voiceStateRef.current === "listening") return;
     stopSpeaking();
@@ -703,7 +709,7 @@ export function ChatWorkspace({
       await startVoiceSession(id, "browser");
       const recognition = new Recognition();
       recognition.lang = voice.language || navigator.language || "en-US";
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       finalTranscriptRef.current = "";
       shouldSendRef.current = true;
@@ -763,7 +769,9 @@ export function ChatWorkspace({
     // Fallback: record audio and transcribe with the authenticated server voice.
     await startVoiceSession(id, "server");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: devicePrefs.inputId ? { deviceId: { exact: devicePrefs.inputId } } : true,
+      });
       streamRef.current = stream;
       // real level from the same stream (honest, not fake)
       try {
