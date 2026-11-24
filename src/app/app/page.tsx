@@ -1,6 +1,7 @@
 import { requireOnboardedPageSession } from "@/modules/auth/session";
 import { getConversation, listConversations, listMessages } from "@/modules/conversations/service";
 import { ChatWorkspace } from "@/components/chat/chat-workspace";
+import { AidaCore } from "@/components/command/aida-core";
 
 export const dynamic = "force-dynamic";
 
@@ -27,30 +28,44 @@ export default async function AssistantPage({ searchParams }: { searchParams: Se
   }
 
   return (
-    <ChatWorkspace
-      assistantName={session.profile.displayName ?? "your assistant"}
-      userName={session.user.displayName}
-      conversations={conversations.map((conversation) => ({
-        id: conversation.id,
-        title: conversation.title,
-        updatedAt: conversation.updatedAt.toISOString(),
-      }))}
-      activeConversationId={activeId}
-      initialMessages={initialMessages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        channel: message.channel,
-        citations: message.citations,
-        toolActivity: message.toolActivity,
-        createdAt: message.createdAt.toISOString(),
-      }))}
-      voice={{
-        provider: session.profile.voiceConfig.provider,
-        voiceId: session.profile.voiceConfig.voiceId,
-        language: session.profile.voiceConfig.language,
-        rate: session.profile.voiceConfig.rate,
-      }}
-    />
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16 }}>
+        <AidaCore state="idle" />
+        <div className="command-env" style={{ background: "var(--cmd-surface)", border: "1px solid var(--cmd-line)", borderRadius: "var(--cmd-radius)", padding: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 14, letterSpacing: 1, color: "var(--cmd-cyan)" }}>Current Focus</h3>
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--cmd-ink-soft)" }}>Ready for your next command. Ask Aida to review a repository, prepare a briefing, or manage devices.</p>
+          <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, background: "rgba(0,229,255,0.1)", border: "1px solid var(--cmd-line)", padding: "4px 8px", borderRadius: 20 }}>Loop 4 · Engineering Intelligence</span>
+            <span style={{ fontSize: 11, background: "rgba(255,204,0,0.1)", border: "1px solid rgba(255,204,0,0.2)", padding: "4px 8px", borderRadius: 20, color: "var(--cmd-amber)" }}>Voice + Text Unified</span>
+          </div>
+          <div style={{ marginTop: 12, fontSize: 12, color: "var(--cmd-muted)" }}>{conversations.length} conversations • {initialMessages.length} messages in view</div>
+        </div>
+      </div>
+      <ChatWorkspace
+        assistantName={session.profile.displayName ?? "your assistant"}
+        userName={session.user.displayName}
+        conversations={conversations.map((conversation) => ({
+          id: conversation.id,
+          title: conversation.title,
+          updatedAt: conversation.updatedAt.toISOString(),
+        }))}
+        activeConversationId={activeId}
+        initialMessages={initialMessages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          channel: message.channel,
+          citations: message.citations,
+          toolActivity: message.toolActivity,
+          createdAt: message.createdAt.toISOString(),
+        }))}
+        voice={{
+          provider: session.profile.voiceConfig.provider,
+          voiceId: session.profile.voiceConfig.voiceId,
+          language: session.profile.voiceConfig.language,
+          rate: session.profile.voiceConfig.rate,
+        }}
+      />
+    </div>
   );
 }
