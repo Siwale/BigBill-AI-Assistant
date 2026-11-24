@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable react-hooks/exhaustive-deps */
 
 import { useCallback, useRef, useState } from "react";
 
@@ -18,6 +17,7 @@ export function useRealtimeVoice(params: {
   onTranscript: (text: string, isFinal: boolean) => void;
   onAssistantText: (text: string) => void;
   onStateChange: (state: RealtimeState, message?: string) => void;
+  onStream?: (stream: MediaStream | null) => void;
 }) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
@@ -32,6 +32,29 @@ export function useRealtimeVoice(params: {
     },
     [params],
   );
+
+  const cleanup = useCallback(() => {
+    try {
+      dcRef.current?.close();
+    } catch {
+      // ignore
+    }
+    dcRef.current = null;
+    try {
+      pcRef.current?.close();
+    } catch {
+      // ignore
+    }
+    pcRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      audioElRef.current.srcObject = null;
+      audioElRef.current.remove();
+      audioElRef.current = null;
+    }
+  }, []);
 
   const connect = useCallback(async (conversationId: string | null) => {
     if (!conversationId) {
@@ -55,7 +78,35 @@ export function useRealtimeVoice(params: {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
-      // Handle incoming audio
+      let dataChannelOpen = false;
+      let peerConnected = false;
+      const maybeSetConnected = () => {
+        if (dataChannelOpen && peerConnected) set("connected");
+      };
+
+      pc.onconnectionstatechange = () => {
+        const s = pc.connectionState;
+        if (s === "failed" || s === "disconnected" || s === "closed") {
+          set("error", `Peer connection ${s}.`);
+          cleanup();
+          set("disconnected");
+        } else if (s === "connected") {
+          peerConnected = true;
+          maybeSetConnected();
+        }
+      };
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        if (s === "failed" || s === "disconnected") {
+          set("error", `ICE ${s}.`);
+        }
+      };
+      pc.onsignalingstatechange = () => {
+        if (pc.signalingState === "closed") {
+          set("disconnected");
+        }
+      };
+
       pc.ontrack = (event) => {
         const [remoteStream] = event.streams;
         if (!remoteStream) return;
@@ -69,60 +120,82 @@ export function useRealtimeVoice(params: {
         void audio.play().catch(() => undefined);
       };
 
-      // Data channel for Realtime events
       const dc = pc.createDataChannel("oai-events");
       dcRef.current = dc;
       dc.onopen = () => {
-        set("connected");
-        // Configure session: transcription + turn detection
+        dataChannelOpen = true;
+        maybeSetConnected();
+        // Server-controlled session config: transcription only, no autonomous
+        // assistant audio — the existing orchestrator remains the sole reasoning
+        // engine to avoid duplicate responses. Audio output is via selected
+        // output device through orchestrator TTS.
         const sessionUpdate = {
           type: "session.update",
           session: {
-            instructions: "You are a helpful executive assistant. Be concise.",
-            voice: "alloy",
+            instructions: "You are a helpful executive assistant. Be concise and do not claim to perform business actions directly; route tool use via server.",
             input_audio_transcription: { model: "whisper-1" },
             turn_detection: { type: "server_vad" },
           },
         };
-        dc.send(JSON.stringify(sessionUpdate));
-      };
-      dc.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data as string) as {
-            type?: string;
-            transcript?: string;
-            delta?: string;
-            text?: string;
-            error?: { message?: string };
-          };
-          if (msg.type === "conversation.item.input_audio_transcription.completed" && msg.transcript) {
-            params.onTranscript(msg.transcript, true);
-          } else if (msg.type === "response.audio_transcript.delta" && msg.delta) {
-            params.onAssistantText(msg.delta);
-          } else if (msg.type === "response.audio_transcript.done" && msg.transcript) {
-            params.onAssistantText(msg.transcript);
-          } else if (msg.type === "error" && msg.error?.message) {
-            set("error", msg.error.message);
-          }
+          dc.send(JSON.stringify(sessionUpdate));
         } catch {
-          // ignore parse errors
+          set("error", "Failed to configure Realtime session.");
         }
       };
-      dc.onclose = () => set("disconnected");
+      dc.onmessage = (event) => {
+        let msg: unknown;
+        try {
+          msg = JSON.parse(event.data as string);
+        } catch {
+          return;
+        }
+        if (typeof msg !== "object" || msg === null || typeof (msg as { type?: unknown }).type !== "string") return;
+        const typed = msg as { type: string; transcript?: unknown; delta?: unknown; text?: unknown; error?: { message?: unknown } };
+        // GA event names
+        if (typed.type === "conversation.item.input_audio_transcription.completed" && typeof typed.transcript === "string" && typed.transcript.trim()) {
+          params.onTranscript(typed.transcript.trim(), true);
+        } else if (
+          (typed.type === "response.output_audio_transcript.delta" || typed.type === "response.audio_transcript.delta") &&
+          typeof typed.delta === "string" &&
+          typed.delta
+        ) {
+          params.onAssistantText(typed.delta);
+        } else if (
+          (typed.type === "response.output_audio_transcript.done" || typed.type === "response.audio_transcript.done") &&
+          typeof typed.transcript === "string" &&
+          typed.transcript.trim()
+        ) {
+          params.onAssistantText(typed.transcript.trim());
+        } else if (
+          (typed.type === "response.output_text.delta" || typed.type === "response.text.delta") &&
+          typeof typed.delta === "string" &&
+          typed.delta
+        ) {
+          params.onAssistantText(typed.delta);
+        } else if (typed.type === "error" && typeof typed.error?.message === "string") {
+          set("error", typed.error.message);
+        }
+      };
+      dc.onclose = () => {
+        dataChannelOpen = false;
+        set("disconnected");
+        cleanup();
+      };
       dc.onerror = () => set("error", "Realtime data channel error.");
 
-      // Get mic with selected device
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: params.selectedInputId ? { deviceId: { exact: params.selectedInputId } } : true,
       });
       streamRef.current = stream;
+      params.onStream?.(stream);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Send offer SDP to OpenAI Realtime
-      const sdpRes = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(ephemeral.model)}`, {
+      // Current GA handshake
+      const sdpRes = await fetch("https://api.openai.com/v1/realtime/calls", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${ephemeral.clientSecret}`,
@@ -130,56 +203,45 @@ export function useRealtimeVoice(params: {
         },
         body: offer.sdp ?? "",
       });
-      if (!sdpRes.ok) {
+      const contentType = sdpRes.headers.get("content-type") ?? "";
+      if (!sdpRes.ok || !contentType.includes("application/sdp")) {
         const text = await sdpRes.text().catch(() => "");
-        throw new Error(`Realtime SDP failed: ${sdpRes.status} ${text.slice(0, 300)}`);
+        throw new Error(`Realtime SDP failed: ${sdpRes.status} ${text.slice(0, 500)}`);
       }
       const answerSdp = await sdpRes.text();
+      if (!answerSdp.trim().startsWith("v=")) {
+        throw new Error("Realtime SDP answer malformed.");
+      }
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Realtime connection failed.";
       set("error", msg);
-      disconnect();
+      cleanup();
+      set("disconnected");
     }
-  }, [params, set]);
+  }, [params, set, cleanup]);
 
   const disconnect = useCallback(() => {
-    try {
-      dcRef.current?.close();
-    } catch {
-      // ignore
-    }
-    dcRef.current = null;
-    try {
-      pcRef.current?.close();
-    } catch {
-      // ignore
-    }
-    pcRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (audioElRef.current) {
-      audioElRef.current.pause();
-      audioElRef.current.srcObject = null;
-      audioElRef.current = null;
-    }
+    cleanup();
     set("disconnected");
-  }, [set]);
+  }, [cleanup, set]);
 
   const sendText = useCallback(
     (text: string) => {
       const dc = dcRef.current;
       if (!dc || dc.readyState !== "open") return;
+      const trimmed = text.trim().slice(0, 4000);
+      if (!trimmed) return;
       const event = {
         type: "conversation.item.create",
-        item: {
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text }],
-        },
+        item: { type: "message", role: "user", content: [{ type: "input_text", text: trimmed }] },
       };
-      dc.send(JSON.stringify(event));
-      dc.send(JSON.stringify({ type: "response.create", response: { modalities: ["audio", "text"] } }));
+      try {
+        dc.send(JSON.stringify(event));
+        dc.send(JSON.stringify({ type: "response.create", response: { modalities: ["audio", "text"] } }));
+      } catch {
+        // ignore
+      }
     },
     [],
   );
