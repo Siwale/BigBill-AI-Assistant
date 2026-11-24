@@ -106,8 +106,16 @@ export function AidaCore({
         }
       }
 
-      // Core glow
-      const glow = isError ? "rgba(255,59,110,0.5)" : isPaused ? "rgba(90,122,184,0.2)" : isSpeaking ? `rgba(0,229,255,${0.4 + clamped * 0.4})` : "rgba(0,229,255,0.35)";
+      // Core glow — thinking brightens, speaking reacts to level
+      const glow = isError
+        ? "rgba(255,59,110,0.5)"
+        : isPaused
+          ? "rgba(90,122,184,0.2)"
+          : isThinking
+            ? "rgba(0,229,255,0.55)"
+            : isSpeaking
+              ? `rgba(0,229,255,${0.4 + clamped * 0.4})`
+              : "rgba(0,229,255,0.35)";
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.arc(cx, cy, r * (0.85 + (reducedMotion ? 0 : clamped * 0.08 + Math.sin(frame * 0.02) * 0.02)), 0, Math.PI * 2);
