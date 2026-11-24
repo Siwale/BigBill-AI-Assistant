@@ -13,10 +13,14 @@ export function PersonalEnvironment() {
   const [musicGate, setMusicGate] = useState<string>("");
   const [movieGate, setMovieGate] = useState<string>("");
   const [visualStatus] = useState<string>("idle");
+  const [companion, setCompanion] = useState<string>("checking");
+  const [ha, setHa] = useState<string>("checking");
 
   useEffect(() => {
     void fetch("/api/music/favorites").then((r) => r.json()).then((d) => { if (d.favorites) setMusic(d.favorites); if (d.gates) setMusicGate(JSON.stringify(d.gates)); }).catch(()=>{});
     void fetch("/api/movies/watchlist").then((r) => r.json()).then((d) => { if (d.watchlist) setWatchlist(d.watchlist); if (d.availability) setMovieGate(d.availability.note ?? ""); }).catch(()=>{});
+    void fetch("/api/companion/status").then((r) => r.json()).then((d) => setCompanion(d.companion ?? d.honest ?? "unknown")).catch(()=> setCompanion("error"));
+    void fetch("/api/home-assistant/status").then((r) => r.json()).then((d) => setHa(d.ha?.status ?? d.honest ?? "unknown")).catch(()=> setHa("error"));
   }, []);
 
   return (
@@ -31,6 +35,11 @@ export function PersonalEnvironment() {
       <section className="card">
         <h3 className="section-title">Devices</h3>
         <p className="tiny muted">Capability registry: unsupported → available → permission_required → pairing → paired → connecting → connected → selected → active. Web Bluetooth is BLE GATT only — not A2DP speakers. Use OS companion for Bluetooth audio.</p>
+        <div className="banner info" style={{ fontSize: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <span className="badge">Companion: {companion}</span>
+          <span className="badge">Home Assistant: {ha}</span>
+          <span className="tiny muted">Companion 127.0.0.1:8787 — allowlisted BlueZ/PipeWire; HA optional OAuth</span>
+        </div>
         <DevicePanel />
       </section>
 
