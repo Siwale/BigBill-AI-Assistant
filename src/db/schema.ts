@@ -692,9 +692,91 @@ export type MeetingRecord = typeof meetingRecords.$inferSelect;
 export type MeetingTranscriptSegment = typeof meetingTranscriptSegments.$inferSelect;
 export type MeetingActionCandidate = typeof meetingActionCandidates.$inferSelect;
 export type Observation = typeof observations.$inferSelect;
+export const engineeringRepositories = pgTable(
+  "engineering_repositories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    displayName: text("display_name").notNull(),
+    canonicalPath: text("canonical_path").notNull(),
+    allowedRootId: text("allowed_root_id").notNull(),
+    remoteUrlRedacted: text("remote_url_redacted"),
+    branch: text("branch"),
+    commitSha: text("commit_sha"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastHealthAt: timestamp("last_health_at", { withTimezone: true }),
+    lastHealthStatus: text("last_health_status"),
+  },
+  (t) => [index("engineering_repos_tenant_idx").on(t.tenantId, t.userId), uniqueIndex("engineering_repos_tenant_path_uq").on(t.tenantId, t.canonicalPath)],
+);
+
+export const engineeringAudits = pgTable(
+  "engineering_audits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id").notNull().references(() => engineeringRepositories.id, { onDelete: "cascade" }),
+    scopeType: text("scope_type").notNull().default("whole_repository"),
+    scopeTarget: text("scope_target"),
+    reviewProfile: text("review_profile").notNull().default("standard"),
+    includeWorkingChanges: boolean("include_working_changes").notNull().default(true),
+    status: text("status").notNull().default("pending"),
+    forgeVersion: text("forge_version"),
+    adapterVersion: text("adapter_version").notNull().default("1.0.0"),
+    snapshotSha256: text("snapshot_sha256"),
+    branch: text("branch"),
+    commitSha: text("commit_sha"),
+    dirty: boolean("dirty"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [index("engineering_audits_tenant_idx").on(t.tenantId, t.repositoryId, t.createdAt)],
+);
+
+export const engineeringAuditEvents = pgTable(
+  "engineering_audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    auditId: uuid("audit_id").notNull().references(() => engineeringAudits.id, { onDelete: "cascade" }),
+    stage: text("stage").notNull(),
+    status: text("status").notNull(),
+    message: text("message").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("engineering_audit_events_audit_idx").on(t.auditId, t.createdAt)],
+);
+
+export const engineeringFindings = pgTable(
+  "engineering_findings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    auditId: uuid("audit_id").notNull().references(() => engineeringAudits.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    severity: text("severity").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    trustState: text("trust_state").notNull(),
+    evidence: jsonb("evidence").$type<Array<{ file: string; lineStart?: number; lineEnd?: number; symbol?: string; excerpt?: string; valid: boolean }>>().notNull().default([]),
+    verification: jsonb("verification").$type<{ method: string; status: string; artifactId?: string; summary: string } | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("engineering_findings_audit_idx").on(t.auditId, t.severity)],
+);
+
 export type VisualSession = typeof visualSessions.$inferSelect;
 export type DeviceConnection = typeof deviceConnections.$inferSelect;
 export type LocalCompanionPairing = typeof localCompanionPairings.$inferSelect;
 export type MusicFavorite = typeof musicFavorites.$inferSelect;
 export type MoviePreference = typeof moviePreferences.$inferSelect;
 export type MovieWatchlistEntry = typeof movieWatchlist.$inferSelect;
+export type EngineeringRepository = typeof engineeringRepositories.$inferSelect;
+export type EngineeringAudit = typeof engineeringAudits.$inferSelect;
+export type EngineeringAuditEvent = typeof engineeringAuditEvents.$inferSelect;
+export type EngineeringFinding = typeof engineeringFindings.$inferSelect;
