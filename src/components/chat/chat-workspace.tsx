@@ -215,23 +215,27 @@ export function ChatWorkspace({
   const playbackRafRef = useRef<number | null>(null);
 
   // Load saved device prefs for actual voice transport (honest, not diagnostics-only)
-  useEffect(() => {
-    void fetch("/api/devices")
-      .then((r) => r.json() as Promise<{ preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null }>)
-      .then(async (data) => {
-        if (!data.preference) return;
-        // Need to enumerate to map label → deviceId (browser privacy: label only after permission)
-        try {
-          const devs = await navigator.mediaDevices.enumerateDevices();
-          const input = devs.find((d) => d.kind === "audioinput" && d.label === data.preference?.preferredInputLabel);
-          const output = devs.find((d) => d.kind === "audiooutput" && d.label === data.preference?.preferredOutputLabel);
-          setDevicePrefs({ inputId: input?.deviceId, outputId: output?.deviceId });
-        } catch {
-          // ignore
-        }
-      })
-      .catch(() => undefined);
+  const resolveDevicePrefs = useCallback(async () => {
+    try {
+      const data = (await fetch("/api/devices").then((r) =>
+        r.json() as Promise<{ preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null }>,
+      )) as { preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null };
+      if (!data.preference) return;
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const input = devs.find((d) => d.kind === "audioinput" && d.label === data.preference?.preferredInputLabel);
+      const output = devs.find((d) => d.kind === "audiooutput" && d.label === data.preference?.preferredOutputLabel);
+      setDevicePrefs({ inputId: input?.deviceId, outputId: output?.deviceId });
+    } catch {
+      // ignore
+    }
   }, []);
+
+  useEffect(() => {
+    void resolveDevicePrefs();
+    const handler = () => void resolveDevicePrefs();
+    navigator.mediaDevices?.addEventListener?.("devicechange", handler);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", handler);
+  }, [resolveDevicePrefs]);
 
   const realtime = useRealtimeVoice({
     selectedInputId: devicePrefs.inputId,
