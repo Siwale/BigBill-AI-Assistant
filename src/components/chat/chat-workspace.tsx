@@ -168,6 +168,9 @@ export function ChatWorkspace({
   activeConversationId,
   initialMessages,
   voice,
+  onViseme,
+  onLevel,
+  onAvatarState,
 }: {
   assistantName: string;
   userName: string;
@@ -175,6 +178,9 @@ export function ChatWorkspace({
   activeConversationId: string | null;
   initialMessages: ChatMessage[];
   voice: VoiceConfig;
+  onViseme?: (visemes: import("@/modules/voice/viseme").TimedViseme[] | null, startMs: number | null) => void;
+  onLevel?: (level: number) => void;
+  onAvatarState?: (state: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [conversations, setConversations] = useState<ConversationSummary[]>(initialConversations);
@@ -431,6 +437,8 @@ export function ChatWorkspace({
     micLevelStreamRef.current?.getTracks().forEach((t) => t.stop());
     micLevelStreamRef.current = null;
     setAudioLevel(0);
+    onLevel?.(0);
+    onAvatarState?.("idle");
   }, []);
 
   const stopPlaybackLevel = useCallback(() => {
@@ -442,6 +450,9 @@ export function ChatWorkspace({
       playbackContextRef.current = null;
     }
     setAudioLevel(0);
+    onLevel?.(0);
+    onViseme?.(null, null);
+    onAvatarState?.("idle");
   }, []);
 
   const startPlaybackLevel = useCallback((audio: HTMLAudioElement) => {
@@ -460,9 +471,11 @@ export function ChatWorkspace({
         playbackAnalyserRef.current.getByteFrequencyData(data);
         const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
         setAudioLevel(avg);
+        onLevel?.(avg);
         playbackRafRef.current = requestAnimationFrame(tick);
       };
       tick();
+      onAvatarState?.("speaking");
     } catch {
       // playback level is best-effort
     }
@@ -563,9 +576,18 @@ export function ChatWorkspace({
       const clean = text.replace(/[#*_`>]/g, "").trim();
       if (!clean) {
         setVoiceState("idle");
+        onAvatarState?.("idle");
         return;
       }
       setVoiceState("speaking");
+      onAvatarState?.("speaking");
+      // Fetch visemes for lip-sync (real provider alignment or approximate)
+      void fetch("/api/voice/visemes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean.slice(0, 400) }) })
+        .then((r) => r.json() as Promise<{ visemes?: import("@/modules/voice/viseme").TimedViseme[] }>)
+        .then((d) => {
+          if (d.visemes) onViseme?.(d.visemes, Date.now());
+        })
+        .catch(() => {});
       const synthesis = getSynthesis();
       if (synthesis) {
         try {
@@ -581,6 +603,8 @@ export function ChatWorkspace({
           }
           utterance.onend = () => {
             if (voiceStateRef.current === "speaking") setVoiceState("idle");
+            onViseme?.(null, null);
+            onAvatarState?.("idle");
           };
           utterance.onerror = () => {
             void speakWithServer(clean);
@@ -597,6 +621,11 @@ export function ChatWorkspace({
   );
 
   async function speakWithServer(text: string) {
+    // Fetch visemes in parallel with audio for lip-sync
+    const visemePromise = fetch("/api/voice/visemes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text.slice(0, 400) }) })
+      .then((r) => r.json() as Promise<{ visemes?: import("@/modules/voice/viseme").TimedViseme[] }>)
+      .then((d) => d.visemes ?? null)
+      .catch(() => null);
     try {
       const response = await fetch("/api/voice/speak", {
         method: "POST",
@@ -615,6 +644,8 @@ export function ChatWorkspace({
           // fallback to system default, visible via device panel
         }
       }
+      const visemes = await visemePromise;
+      if (visemes) onViseme?.(visemes, Date.now());
       audioRef.current = audio;
       audio.onended = () => {
         stopPlaybackLevel();

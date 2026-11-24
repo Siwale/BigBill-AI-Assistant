@@ -88,12 +88,26 @@ export async function POST(request: Request) {
       companionStatus = 502;
     }
 
-    // Persist result — if companion succeeded, store findings
+    // Persist result — if companion succeeded, store findings with hardened trust gate
     if (companionStatus === 200 && companionResult && typeof companionResult === "object" && (companionResult as { result?: unknown }).result) {
-      const r = (companionResult as { result: { findings?: Array<Record<string, unknown>>; source?: Record<string, unknown>; summary?: unknown; stages?: unknown; forgeVersion?: string; adapterVersion?: string; status?: string } }).result;
+      const r = (companionResult as { result: { findings?: Array<Record<string, unknown>>; source?: Record<string, unknown>; summary?: unknown; stages?: unknown; forgeVersion?: string; adapterVersion?: string; status?: string; skippedChecks?: Array<{ check: string; reason: string }> } }).result;
       const findings = (r.findings ?? []) as Array<Record<string, unknown>>;
+      // Hardened verification: require artifact for CONFIRMED, otherwise downgrade
+      const skipped = (r as { skippedChecks?: Array<{ check: string; reason: string }> }).skippedChecks ?? [];
+      // If sandbox not available, mark verification as skipped
+      const hasDocker = false; // honest: Docker sandbox not configured in this loop — verification is static + pytest only, network disabled
+      if (!hasDocker) skipped.push({ check: "runtime_verification", reason: "Runtime verification skipped: Docker unavailable — network disabled, no Docker socket" });
       await db.update(engineeringAudits).set({ status: (r.status as string) ?? "completed", forgeVersion: (r.forgeVersion as string) ?? null, snapshotSha256: (r.source as { snapshotSha256?: string })?.snapshotSha256 ?? null, completedAt: new Date(), updatedAt: new Date() }).where(eq(engineeringAudits.id, audit.id));
       for (const f of findings.slice(0, 50)) {
+        let trustState = String(f.trustState ?? "UNVERIFIED");
+        const verification = f.verification as { method: string; status: string; artifactId?: string; summary: string } | null;
+        // Enforce artifact requirement
+        if (trustState === "CONFIRMED" && (!verification || !verification.artifactId)) {
+          trustState = "UNVERIFIED";
+        }
+        // Also ensure evidence valid
+        const evidence = (f.evidence as Array<{ file: string; lineStart?: number; lineEnd?: number; symbol?: string; excerpt?: string; valid: boolean }>) ?? [];
+        const validEvidence = evidence.filter((e) => e.valid !== false).map((e) => ({ ...e, excerpt: e.excerpt ? e.excerpt.slice(0, 200) : "" }));
         await db.insert(engineeringFindings).values({
           tenantId: session.user.tenantId,
           auditId: audit.id,
@@ -101,10 +115,15 @@ export async function POST(request: Request) {
           severity: String(f.severity ?? "info"),
           title: String(f.title ?? f.description ?? "Finding").slice(0, 200),
           description: String(f.description ?? "").slice(0, 2000),
-          trustState: String(f.trustState ?? "UNVERIFIED"),
-          evidence: (f.evidence as Array<{ file: string; lineStart?: number; lineEnd?: number; symbol?: string; excerpt?: string; valid: boolean }>) ?? [],
-          verification: f.verification as { method: string; status: string; artifactId?: string; summary: string } | null,
+          trustState,
+          evidence: validEvidence,
+          verification: verification ? { ...verification, summary: verification.summary.slice(0, 500) } : null,
         });
+      }
+      if (skipped.length) {
+        for (const s of skipped) {
+          await db.insert(engineeringAuditEvents).values({ tenantId: session.user.tenantId, auditId: audit.id, stage: "VERIFY", status: "skipped", message: `${s.check}: ${s.reason}` });
+        }
       }
       await db.insert(engineeringAuditEvents).values({ tenantId: session.user.tenantId, auditId: audit.id, stage: "REPORT", status: "completed", message: `Audit completed: ${findings.length} findings` });
     } else {

@@ -18,25 +18,97 @@ export function EngineeringWorkspace() {
   const [coreState, setCoreState] = useState<AidaCoreState>("idle");
   const [companion, setCompanion] = useState<string>("checking");
   const [forge, setForge] = useState<string>("checking");
-  const [activity] = useState<Array<{ time: string; msg: string }>>([
-    { time: "14:27:11", msg: "Resolving repository: BigBill-AI-Assistant" },
-    { time: "14:27:12", msg: "Connecting to local companion (Ubuntu)" },
-    { time: "14:27:13", msg: "Starting Forge analysis engine v0.4" },
-  ]);
-  const [findings] = useState([
-    { id: "P0", count: 1, label: "Critical – Tenant data exposure risk", color: "#ff3b6e" },
-    { id: "P1", count: 3, label: "High – Missing input validation", color: "#ff8c42" },
-    { id: "P2", count: 5, label: "Medium – Test coverage gaps", color: "#ffcc00" },
-    { id: "P3", count: 8, label: "Low – Code quality and maintainability", color: "#5eb0ff" },
-  ]);
+  const [activity, setActivity] = useState<Array<{ time: string; msg: string }>>([]);
+  const [findings, setFindings] = useState<Array<{ id: string; count: number; label: string; color: string }>>([]);
+  const [liveConnected, setLiveConnected] = useState(false);
 
   useEffect(() => {
     void fetch("/api/companion/status").then((r) => r.json()).then((d) => setCompanion(d.companion ?? "unknown")).catch(() => setCompanion("error"));
-    // Forge availability via companion bridge check — honest
     void fetch("/api/engineering/status").then((r) => r.json()).then((d) => setForge(d.forge ?? "unknown")).catch(() => setForge("not_configured"));
-    // Simulate live activity only when companion available — otherwise stay honest
-    const t = setTimeout(() => setCoreState("inspecting"), 1500);
-    return () => clearTimeout(t);
+  }, []);
+
+  // Real live activity: poll latest audit events, SSE where available
+  useEffect(() => {
+    let cancelled = false;
+    let es: EventSource | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    async function loadLatest() {
+      try {
+        const auditsRes = await fetch("/api/engineering/audits");
+        const auditsData = (await auditsRes.json()) as { audits?: Array<{ id: string }> };
+        const auditId = auditsData.audits?.[0]?.id;
+        if (!auditId) {
+          if (!cancelled) {
+            setActivity([]);
+            setFindings([]);
+            setCoreState("idle");
+          }
+          return;
+        }
+        // Try SSE
+        try {
+          es = new EventSource(`/api/engineering/audits/${auditId}/events`, { withCredentials: true } as unknown as EventSourceInit);
+          es.onmessage = (ev) => {
+            try {
+              const data = JSON.parse(ev.data) as { stage: string; status: string; message: string; createdAt: string };
+              if (!cancelled) {
+                setActivity((prev) => [...prev.slice(-50), { time: new Date(data.createdAt).toLocaleTimeString(), msg: data.message }]);
+                setLiveConnected(true);
+                if (data.stage === "MAP") setCoreState("inspecting");
+                else if (data.stage === "ANALYSE") setCoreState("searching");
+                else if (data.stage === "VERIFY") setCoreState("verifying");
+                else if (data.stage === "REPORT") setCoreState("idle");
+              }
+            } catch {}
+          };
+          es.onerror = () => {
+            es?.close();
+            es = null;
+            setLiveConnected(false);
+            // Fallback to polling JSON
+            void pollJson(auditId);
+          };
+          es.onopen = () => setLiveConnected(true);
+        } catch {
+          void pollJson(auditId);
+        }
+        async function pollJson(id: string) {
+          if (cancelled) return;
+          try {
+            const res = await fetch(`/api/engineering/audits/${id}/events`);
+            const data = (await res.json()) as { events?: Array<{ stage: string; status: string; message: string; createdAt: string }> };
+            if (data.events) {
+              if (!cancelled) {
+                setActivity(data.events.map((e) => ({ time: new Date(e.createdAt).toLocaleTimeString(), msg: e.message })));
+                setLiveConnected(true);
+              }
+            }
+            // Findings
+            const reportRes = await fetch(`/api/engineering/audits/${id}/report`);
+            const report = (await reportRes.json()) as { findings?: Array<{ severity: string }> };
+            if (report.findings && !cancelled) {
+              const bySev: Record<string, number> = {};
+              for (const f of report.findings) bySev[f.severity] = (bySev[f.severity] ?? 0) + 1;
+              setFindings([
+                { id: "P0", count: bySev.critical ?? 0, label: "Critical", color: "#ff3b6e" },
+                { id: "P1", count: bySev.high ?? 0, label: "High", color: "#ff8c42" },
+                { id: "P2", count: bySev.medium ?? 0, label: "Medium", color: "#ffcc00" },
+                { id: "P3", count: (bySev.low ?? 0) + (bySev.info ?? 0), label: "Low", color: "#5eb0ff" },
+              ].filter((f) => f.count > 0));
+            }
+          } catch {}
+          if (!cancelled) pollTimer = setTimeout(() => void pollJson(id), 5000);
+        }
+      } catch {
+        if (!cancelled) setActivity([]);
+      }
+    }
+    void loadLatest();
+    return () => {
+      cancelled = true;
+      es?.close();
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, []);
 
   const isDisconnected = companion !== "available" || forge === "not_configured";
@@ -86,11 +158,11 @@ export function EngineeringWorkspace() {
           </div>
         </div>
 
-        {/* C. Live activity feed */}
+        {/* C. Live activity feed — real SSE/polling, no fake logs */}
         <div style={{ background: "var(--cmd-surface)", border: "1px solid var(--cmd-line)", borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 8, maxHeight: 520, overflow: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0, fontSize: 13, color: "var(--cmd-cyan)" }}>Live Activity</h3>
-            <span style={{ fontSize: 10, background: "var(--cmd-green)", color: "#020812", padding: "2px 6px", borderRadius: 20 }}>Live</span>
+            <span style={{ fontSize: 10, background: liveConnected ? "var(--cmd-green)" : "var(--cmd-amber)", color: "#020812", padding: "2px 6px", borderRadius: 20 }}>{liveConnected ? "Live" : "Offline"}</span>
           </div>
           {activity.map((a, i) => (
             <div key={i} style={{ fontSize: 11, color: "var(--cmd-ink-soft)", display: "flex", gap: 8, borderLeft: "2px solid var(--cmd-line)", paddingLeft: 8 }}>
