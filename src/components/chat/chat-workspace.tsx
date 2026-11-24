@@ -215,27 +215,72 @@ export function ChatWorkspace({
   const playbackRafRef = useRef<number | null>(null);
 
   // Load saved device prefs for actual voice transport (honest, not diagnostics-only)
-  useEffect(() => {
-    void fetch("/api/devices")
-      .then((r) => r.json() as Promise<{ preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null }>)
-      .then(async (data) => {
-        if (!data.preference) return;
-        // Need to enumerate to map label → deviceId (browser privacy: label only after permission)
-        try {
-          const devs = await navigator.mediaDevices.enumerateDevices();
-          const input = devs.find((d) => d.kind === "audioinput" && d.label === data.preference?.preferredInputLabel);
-          const output = devs.find((d) => d.kind === "audiooutput" && d.label === data.preference?.preferredOutputLabel);
-          setDevicePrefs({ inputId: input?.deviceId, outputId: output?.deviceId });
-        } catch {
-          // ignore
-        }
-      })
-      .catch(() => undefined);
+  const resolveDevicePrefs = useCallback(async () => {
+    try {
+      const data = (await fetch("/api/devices").then((r) =>
+        r.json() as Promise<{ preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null }>,
+      )) as { preference?: { preferredInputLabel?: string; preferredOutputLabel?: string } | null };
+      if (!data.preference) return;
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const input = devs.find((d) => d.kind === "audioinput" && d.label === data.preference?.preferredInputLabel);
+      const output = devs.find((d) => d.kind === "audiooutput" && d.label === data.preference?.preferredOutputLabel);
+      setDevicePrefs({ inputId: input?.deviceId, outputId: output?.deviceId });
+    } catch {
+      // ignore
+    }
   }, []);
+
+  useEffect(() => {
+    void resolveDevicePrefs();
+    const handler = () => void resolveDevicePrefs();
+    navigator.mediaDevices?.addEventListener?.("devicechange", handler);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", handler);
+  }, [resolveDevicePrefs]);
 
   const realtime = useRealtimeVoice({
     selectedInputId: devicePrefs.inputId,
     selectedOutputId: devicePrefs.outputId,
+    onStream: (stream) => {
+      if (!stream) {
+        stopMicLevel();
+        return;
+      }
+      // Single mic stream: attach AnalyserNode for honest visualizer, no second getUserMedia
+      try {
+        if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
+        if (micAudioContextRef.current) {
+          void micAudioContextRef.current.close().catch(() => undefined);
+          micAudioContextRef.current = null;
+        }
+        micAnalyserRef.current = null;
+        const ac = new AudioContext();
+        micAudioContextRef.current = ac;
+        if (ac.state === "suspended") void ac.resume().catch(() => undefined);
+        const source = ac.createMediaStreamSource(stream);
+        const analyser = ac.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        micAnalyserRef.current = analyser;
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          if (!micAnalyserRef.current) return;
+          micAnalyserRef.current.getByteFrequencyData(data);
+          const avg = data.reduce((s, v) => s + v, 0) / data.length / 255;
+          setAudioLevel(avg);
+          micRafRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+        stream.getTracks().forEach((t) => {
+          const prev = t.onended as unknown as ((ev: Event) => void) | null;
+          t.onended = (ev: Event) => {
+            if (typeof prev === "function") prev(ev);
+            stopMicLevel();
+          };
+        });
+      } catch {
+        // best effort
+      }
+    },
     onTranscript: (text, isFinal) => {
       if (isFinal) void sendMessage(text, "voice");
       else setTranscript(text);
@@ -323,7 +368,9 @@ export function ChatWorkspace({
 
   const startMicLevel = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: devicePrefs.inputId ? { deviceId: { exact: devicePrefs.inputId } } : true,
+      });
       micLevelStreamRef.current = stream;
       const ac = new AudioContext();
       micAudioContextRef.current = ac;
@@ -365,7 +412,16 @@ export function ChatWorkspace({
       if (micAudioContextRef.current) void micAudioContextRef.current.close().catch(() => undefined);
       if (playbackContextRef.current) void playbackContextRef.current.close().catch(() => undefined);
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      if (audioRef.current) audioRef.current.pause();
+      micLevelStreamRef.current?.getTracks().forEach((t) => t.stop());
+      if (audioRef.current) {
+        audioRef.current.pause();
+        try {
+          URL.revokeObjectURL(audioRef.current.src);
+        } catch {
+          // ignore
+        }
+      }
+      realtime.disconnect();
       const synth = getSynthesis();
       if (synth) synth.cancel();
     };
@@ -448,6 +504,13 @@ export function ChatWorkspace({
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.crossOrigin = "anonymous";
+      if (devicePrefs.outputId && typeof (audio as unknown as { setSinkId?: unknown }).setSinkId === "function") {
+        try {
+          await (audio as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(devicePrefs.outputId);
+        } catch {
+          // fallback to system default, visible via device panel
+        }
+      }
       audioRef.current = audio;
       audio.onended = () => {
         stopPlaybackLevel();
@@ -462,7 +525,6 @@ export function ChatWorkspace({
         setVoiceError("Spoken reply is unavailable in this browser. The text reply is above.");
         setVoiceState("idle");
       };
-      // attach real analyser for honest visualizer (best-effort)
       try {
         startPlaybackLevel(audio);
       } catch {
@@ -624,8 +686,14 @@ export function ChatWorkspace({
     if (realtimeEnabled) {
       const id = conversationIdRef.current || (await ensureConversationForVoice());
       if (!id) return;
-      if (realtime.state !== "connected") await realtime.connect(id);
-      return;
+      if (realtime.state !== "connected") {
+        const ok = await realtime.connect(id);
+        if (ok) return;
+        setVoiceError((prev) => prev || "Realtime unavailable — using server transcription fallback.");
+        // fall through to legacy path automatically
+      } else {
+        return;
+      }
     }
     if (voiceStateRef.current === "listening") return;
     stopSpeaking();
@@ -641,7 +709,7 @@ export function ChatWorkspace({
       await startVoiceSession(id, "browser");
       const recognition = new Recognition();
       recognition.lang = voice.language || navigator.language || "en-US";
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       finalTranscriptRef.current = "";
       shouldSendRef.current = true;
@@ -701,7 +769,9 @@ export function ChatWorkspace({
     // Fallback: record audio and transcribe with the authenticated server voice.
     await startVoiceSession(id, "server");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: devicePrefs.inputId ? { deviceId: { exact: devicePrefs.inputId } } : true,
+      });
       streamRef.current = stream;
       // real level from the same stream (honest, not fake)
       try {
@@ -772,6 +842,14 @@ export function ChatWorkspace({
   }
 
   function stopListening() {
+    if (realtimeEnabled) {
+      realtime.disconnect();
+      stopMicLevel();
+      setVoiceState("idle");
+      setRealtimeEnabled(false);
+      void endVoiceSession();
+      return;
+    }
     stopMicLevel();
     const recognition = recognitionRef.current;
     if (recognition) {

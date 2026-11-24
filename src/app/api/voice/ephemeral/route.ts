@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { assertSameOrigin, jsonError } from "@/lib/http";
 import { correlationIdFor } from "@/lib/api-utils";
 import { requireApiSession } from "@/modules/auth/session";
@@ -9,6 +11,8 @@ import { getEnv, hasOpenAiSpeech } from "@/lib/env";
  * For Loop 2 we return a narrow-scoped, short-lived token only when the
  * server has an OpenAI key. No long-lived secret is ever sent to the browser.
  */
+const bodySchema = z.object({ conversationId: z.string().uuid().optional() });
+
 export async function POST(request: Request) {
   const correlationId = correlationIdFor(request);
   try {
@@ -17,128 +21,101 @@ export async function POST(request: Request) {
     if (!hasOpenAiSpeech()) {
       return NextResponse.json(
         { error: { code: "speech_not_configured", message: "Server speech not configured." } },
-        { status: 409 },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
     const env = getEnv();
-    // Optional conversation association for audit/transcript trail
-    let conversationId: string | null = null;
+
+    let parsed: z.infer<typeof bodySchema> = {};
     try {
-      const body = (await request.clone().json().catch(() => null)) as { conversationId?: string } | null;
-      if (body?.conversationId && /^[0-9a-f-]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.conversationId)) {
-        conversationId = body.conversationId;
+      const raw = await request.json();
+      const result = bodySchema.safeParse(raw);
+      if (!result.success) {
+        return NextResponse.json(
+          { error: { code: "invalid_body", message: "Invalid request body." } },
+          { status: 400, headers: { "Cache-Control": "no-store" } },
+        );
       }
+      parsed = result.data;
     } catch {
-      conversationId = null;
+      parsed = {};
     }
-    if (conversationId) {
+
+    if (parsed.conversationId) {
       const { conversations } = await import("@/db/schema");
       const { and, eq } = await import("drizzle-orm");
       const { db } = await import("@/db/client");
       const rows = await db
         .select({ id: conversations.id })
         .from(conversations)
-        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.user.tenantId)))
+        .where(and(eq(conversations.id, parsed.conversationId), eq(conversations.tenantId, session.user.tenantId)))
         .limit(1);
       if (!rows[0]) {
         return NextResponse.json(
           { error: { code: "conversation_not_found", message: "Conversation not found for this tenant." } },
-          { status: 404 },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
         );
       }
     }
 
-    const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview-2024-12-17";
-    // Current GA: POST /v1/realtime/client_secrets — returns ephemeral client secret for WebRTC
+    const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview";
+    const safetyId = createHash("sha256")
+      .update(`${session.user.tenantId}:${session.user.id}`)
+      .digest("hex")
+      .slice(0, 32);
+
     try {
       const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${env.OPENAI_API_KEY}`,
           "Content-Type": "application/json",
+          "OpenAI-Safety-Identifier": safetyId,
         },
         body: JSON.stringify({
           session: {
             type: "realtime",
             model: realtimeModel,
-            audio: {
-              output: { voice: "alloy" },
-            },
+            audio: { output: { voice: "alloy" } },
           },
         }),
       });
-      if (res.ok) {
-        const data = (await res.json()) as {
-          id?: string;
-          value?: string;
-          client_secret?: { value?: string; expires_at?: number };
-          expires_at?: number;
-          session?: { id?: string; model?: string };
-        };
-        // GA returns { value, expires_at } at top level or nested
-        const secret = data.value ?? data.client_secret?.value ?? null;
-        if (!secret) {
-          return NextResponse.json(
-            { error: { code: "ephemeral_malformed", message: "Provider did not return a client secret." } },
-            { status: 502 },
-          );
-        }
-        const expiresAt = data.expires_at ?? data.client_secret?.expires_at ?? Math.floor(Date.now() / 1000) + 60;
-        const ephemeral = {
-          id: data.id ?? data.session?.id ?? `sess_${Date.now().toString(36)}`,
-          provider: "openai-realtime",
-          clientSecret: secret,
-          expiresAt: new Date(expiresAt * 1000).toISOString(),
-          model: data.session?.model ?? realtimeModel,
-          voice: "alloy",
-        };
-        return NextResponse.json({ ephemeral, correlationId });
-      }
-      // Fallback to legacy /v1/realtime/sessions for accounts still on that path
-      const legacyRes = await fetch("https://api.openai.com/v1/realtime/sessions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model: realtimeModel, voice: "alloy" }),
-      });
-      if (legacyRes.ok) {
-        const data = (await legacyRes.json()) as {
-          id?: string;
-          client_secret?: { value?: string; expires_at?: number };
-          expires_at?: number;
-        };
-        const secret = data.client_secret?.value ?? null;
-        if (!secret) {
-          return NextResponse.json(
-            { error: { code: "ephemeral_malformed", message: "Legacy provider did not return a client secret." } },
-            { status: 502 },
-          );
-        }
-        const expiresAt = data.client_secret?.expires_at ?? data.expires_at ?? Math.floor(Date.now() / 1000) + 60;
-        const ephemeral = {
-          id: data.id ?? `sess_${Date.now().toString(36)}`,
-          provider: "openai-realtime",
-          clientSecret: secret,
-          expiresAt: new Date(expiresAt * 1000).toISOString(),
-          model: realtimeModel,
-          voice: "alloy",
-        };
-        return NextResponse.json({ ephemeral, correlationId });
-      }
-      const text = await legacyRes.text().catch(() => "");
-      return NextResponse.json(
-        {
-          error: {
-            code: "realtime_not_available",
-            message:
-              "Realtime voice is not enabled for this OpenAI account/model. Use browser capture + server transcription fallback. Details: " +
-              text.slice(0, 500),
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return NextResponse.json(
+          {
+            error: {
+              code: "realtime_not_available",
+              message: "Realtime voice is not enabled for this account/model. Use fallback. Details: " + text.slice(0, 500),
+            },
           },
-        },
-        { status: 409 },
-      );
+          { status: 409, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      const data = (await res.json()) as {
+        id?: string;
+        value?: string;
+        client_secret?: { value?: string; expires_at?: number };
+        expires_at?: number;
+        session?: { id?: string; model?: string };
+      };
+      const secret = data.value ?? data.client_secret?.value ?? null;
+      const expiresAt = data.expires_at ?? data.client_secret?.expires_at ?? null;
+      if (!secret || !expiresAt) {
+        return NextResponse.json(
+          { error: { code: "ephemeral_malformed", message: "Provider did not return a client secret or expiry." } },
+          { status: 502, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      const ephemeral = {
+        id: data.id ?? data.session?.id ?? `sess_${Date.now().toString(36)}`,
+        provider: "openai-realtime",
+        clientSecret: secret,
+        expiresAt: new Date(expiresAt * 1000).toISOString(),
+        model: data.session?.model ?? realtimeModel,
+        voice: "alloy",
+      };
+      return NextResponse.json({ ephemeral, correlationId }, { headers: { "Cache-Control": "no-store" } });
     } catch (e) {
       return NextResponse.json(
         {
@@ -147,7 +124,7 @@ export async function POST(request: Request) {
             message: e instanceof Error ? e.message : "Could not mint ephemeral session.",
           },
         },
-        { status: 502 },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
       );
     }
   } catch (error) {

@@ -10,7 +10,6 @@ import type { MeetingActionCandidate, MeetingRecord, MeetingTranscriptSegment } 
 import { ApiError } from "@/lib/http";
 import { recordAudit } from "@/modules/audit/service";
 import { hasScopes } from "@/modules/permissions/service";
-import { createTask } from "@/modules/tasks/service";
 import { getEnv } from "@/lib/env";
 import OpenAI from "openai";
 
@@ -243,24 +242,28 @@ Rules: Only propose an action when there is a firm commitment with evidence. Use
     throw new ApiError(502, "Model returned invalid extraction JSON.", "extraction_parse_failed");
   }
 
-  // verify evidence references exist and quote is substring of referenced segments
-  const segmentMap = new Map(segments.map((s, idx) => [`S${idx + 1}`, s.text.toLowerCase()]));
+  // strict evidence validation: every action must have at least one valid evidence id, and
+  // if a quote is provided it must be a substring of at least one referenced segment after
+  // whitespace normalization and case folding. Never truncate or retain invalid evidence.
+  const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const segmentMap = new Map(segments.map((s, idx) => [`S${idx + 1}`, normalize(s.text)]));
   const segmentIdSet = new Set(segmentMap.keys());
   for (const action of parsed.actions) {
     const ids = action.evidenceSegmentIds ?? [];
+    if (ids.length === 0) {
+      throw new ApiError(502, `Action "${action.title}" missing evidence: at least one evidenceSegmentIds required.`, "evidence_missing");
+    }
     for (const id of ids) {
       if (!segmentIdSet.has(id)) {
         throw new ApiError(502, `Evidence segment ${id} does not exist.`, "evidence_invalid");
       }
     }
     if (action.evidenceQuote) {
-      const quote = action.evidenceQuote.toLowerCase().trim();
-      if (quote.length > 10) {
-        const found = ids.some((id) => (segmentMap.get(id) ?? "").includes(quote.slice(0, 20).toLowerCase()));
-        // if ids provided, quote should be found in at least one referenced segment
-        if (ids.length > 0 && !found) {
-          // sanitize: truncate quote to avoid storing unverified evidence
-          action.evidenceQuote = action.evidenceQuote.slice(0, 200);
+      const quoteNorm = normalize(action.evidenceQuote);
+      if (quoteNorm.length > 0) {
+        const found = ids.some((id) => (segmentMap.get(id) ?? "").includes(quoteNorm));
+        if (!found) {
+          throw new ApiError(502, `Evidence quote does not match any referenced segment for action "${action.title}".`, "evidence_quote_mismatch");
         }
       }
     }
@@ -354,48 +357,76 @@ export async function actOnCandidate(params: {
     return updated ?? candidate;
   }
 
-  // approve -> idempotent atomic transition: only one request can flip proposed->approved
   const canWrite = await hasScopes(params.tenantId, params.userId, ["tasks.write"]);
   if (!canWrite) throw new ApiError(403, "Need tasks.write to approve meeting actions.", "permission_required");
 
-  // attempt atomic status flip first; if another request already flipped, this returns 0 rows
-  const [flipped] = await db
-    .update(meetingActionCandidates)
-    .set({ status: "approved", updatedAt: new Date() })
-    .where(and(eq(meetingActionCandidates.id, candidate.id), eq(meetingActionCandidates.status, "proposed")))
-    .returning();
+  // Transactional, idempotent and recoverable: flip and task creation are one atomic unit.
+  // If task creation fails, the candidate stays proposed (or moves to failed) and can be retried.
+  // Concurrent approves: only one wins the proposed→approving→approved transition.
+  return db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(meetingActionCandidates)
+      .set({ status: "approving", updatedAt: new Date() })
+      .where(and(eq(meetingActionCandidates.id, candidate.id), eq(meetingActionCandidates.status, "proposed")))
+      .returning();
+    if (!claimed) {
+      // already claimed/approved by concurrent request — return current state
+      const fresh = await tx
+        .select()
+        .from(meetingActionCandidates)
+        .where(eq(meetingActionCandidates.id, candidate.id))
+        .limit(1);
+      const row = fresh[0] ?? candidate;
+      if (row.status === "approved" && row.taskId) return row;
+      if (row.status === "approving") throw new ApiError(409, "Approval already in progress. Retry shortly.", "approval_in_progress");
+      return row;
+    }
 
-  if (!flipped) {
-    // another concurrent approval already succeeded
-    const fresh = await db
-      .select()
-      .from(meetingActionCandidates)
-      .where(eq(meetingActionCandidates.id, candidate.id))
-      .limit(1);
-    return fresh[0] ?? candidate;
-  }
+    const dueAt = claimed.dueAt ?? (params.patch?.dueAt ? new Date(params.patch.dueAt) : null);
+    const title = params.patch?.title ?? claimed.title;
+    let taskId: string;
+    try {
+      const { tasks } = await import("@/db/schema");
+      const [task] = await tx
+        .insert(tasks)
+        .values({
+          tenantId: params.tenantId,
+          userId: params.userId,
+          title: title.slice(0, 200),
+          description: claimed.description ?? claimed.evidenceQuote ?? null,
+          dueAt,
+          priority: claimed.priority as "low" | "normal" | "high" | "urgent",
+          status: "open",
+          source: "assistant",
+        })
+        .returning({ id: tasks.id });
+      if (!task) throw new Error("task insert failed");
+      taskId = task.id;
+    } catch {
+      await tx
+        .update(meetingActionCandidates)
+        .set({ status: "failed", updatedAt: new Date() })
+        .where(eq(meetingActionCandidates.id, claimed.id));
+      throw new ApiError(500, "Could not create task for approval. Retry.", "task_create_failed");
+    }
 
-  const dueAt = flipped.dueAt ?? (params.patch?.dueAt ? new Date(params.patch.dueAt) : null);
-  const title = params.patch?.title ?? flipped.title;
-  const task = await createTask({
-    tenantId: params.tenantId,
-    userId: params.userId,
-    title,
-    description: flipped.description ?? flipped.evidenceQuote ?? null,
-    dueAt,
-    priority: flipped.priority as "low" | "normal" | "high" | "urgent",
-    correlationId: params.correlationId,
+    const [approved] = await tx
+      .update(meetingActionCandidates)
+      .set({ status: "approved", taskId, updatedAt: new Date() })
+      .where(eq(meetingActionCandidates.id, claimed.id))
+      .returning();
+    if (!approved) throw new ApiError(500, "Could not finalize approval.", "approval_failed");
+
+    await tx.insert((await import("@/db/schema")).auditEvents).values({
+      tenantId: params.tenantId,
+      actorUserId: params.userId,
+      eventType: "meeting.action_approved",
+      entityType: "meeting_action_candidate",
+      entityId: approved.id,
+      metadata: { title, taskId },
+      correlationId: params.correlationId ?? null,
+    });
+
+    return approved;
   });
-
-  // store created task id in evidence for traceability (via extra audit, not schema)
-  await recordAudit({
-    tenantId: params.tenantId,
-    actorUserId: params.userId,
-    eventType: "meeting.action_approved",
-    entityType: "meeting_action_candidate",
-    entityId: flipped.id,
-    metadata: { title, taskId: task.id },
-    correlationId: params.correlationId,
-  });
-  return flipped;
 }
