@@ -27,7 +27,11 @@ type Props = {
 };
 
 function skinMaterial() {
-  return new THREE.MeshStandardMaterial({ color: 0xc9a186, roughness: 0.55, metalness: 0.02 });
+  // Warm brown with subtle subsurface — matches reference deep warm-brown, not flat beige
+  return new THREE.MeshStandardMaterial({ color: 0x8b5e3c, roughness: 0.48, metalness: 0.02, emissive: 0x2a1a0f, emissiveIntensity: 0.04 });
+}
+function hairMaterial() {
+  return new THREE.MeshStandardMaterial({ color: 0x0f0a08, roughness: 0.75, metalness: 0.02 });
 }
 
 export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs = null }: Props) {
@@ -168,15 +172,41 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
       ear.position.set(side * 0.55, 0.55, 0.02);
       avatar.add(ear);
     }
-    // Hair: back volume + top sweep + tied-back bun silhouette
-    const hairMat = new THREE.MeshStandardMaterial({ color: 0x14100d, roughness: 0.65 });
-    const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.66, 32, 32), hairMat);
-    hairBack.scale.set(0.95, 1.12, 0.95);
-    hairBack.position.set(0, 0.62, -0.14);
-    avatar.add(hairBack);
-    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 24), hairMat);
-    bun.position.set(0, 1.05, -0.5);
+    // Hair: braided updo/bun — dark, structured, matches reference
+    const hairMat = hairMaterial();
+    // Scalp base
+    const scalp = new THREE.Mesh(new THREE.SphereGeometry(0.64, 32, 32), hairMat);
+    scalp.scale.set(0.92, 0.98, 0.92);
+    scalp.position.set(0, 0.68, -0.08);
+    avatar.add(scalp);
+    // Braids — 6 radial braids forming crown + bun
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (i / 6) * Math.PI * 2;
+      const r = 0.58;
+      const x0 = Math.cos(angle) * r * 0.9;
+      const z0 = Math.sin(angle) * r * 0.9;
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(x0 * 0.5, 0.95, z0 * 0.5),
+        new THREE.Vector3(x0 * 0.85, 0.85, z0 * 0.85),
+        new THREE.Vector3(x0 * 0.95, 0.65, z0 * 0.95),
+        new THREE.Vector3(Math.cos(angle) * 0.18, 0.45, Math.sin(angle) * 0.18 - 0.45),
+      ]);
+      const tube = new THREE.TubeGeometry(curve, 12, 0.035, 8, false);
+      const braid = new THREE.Mesh(tube, hairMat);
+      avatar.add(braid);
+    }
+    // Bun
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 24), hairMat);
+    bun.position.set(0, 0.95, -0.52);
+    bun.scale.set(1.1, 0.85, 0.9);
     avatar.add(bun);
+    // Hairline flyaways (subtle)
+    for (let i = 0; i < 8; i += 1) {
+      const a = (i / 8) * Math.PI * 2;
+      const fly = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 8), hairMat);
+      fly.position.set(Math.cos(a) * 0.62, 0.88 + Math.random() * 0.08, Math.sin(a) * 0.62);
+      avatar.add(fly);
+    }
     // Neck + shoulders/bust
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.23, 0.34, 24), skinMaterial());
     neck.position.y = -0.28;
