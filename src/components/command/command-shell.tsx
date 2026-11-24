@@ -32,7 +32,8 @@ type Props = {
 };
 
 const TOP_NAV = [
-  { href: "/app", label: "Home", exact: true },
+  { href: "/app", label: "Command", exact: true },
+  { href: "/app/history", label: "History" },
   { href: "/app/engineering", label: "Engineer" },
   { href: "/app/repositories", label: "Repositories" },
   { href: "/app/forge", label: "Forge" },
@@ -44,6 +45,7 @@ const TOP_NAV = [
 
 const RAIL = [
   { href: "/app", label: "Command", icon: MessageSquare, exact: true },
+  { href: "/app/history", label: "History", icon: Activity },
   { href: "/app/engineering", label: "Engineering", icon: Cpu },
   { href: "/app/repositories", label: "Repositories", icon: Box },
   { href: "/app/projects", label: "Projects", icon: Layers },

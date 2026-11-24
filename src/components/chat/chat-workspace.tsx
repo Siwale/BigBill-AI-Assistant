@@ -9,7 +9,6 @@ import {
   Check,
   Mic,
   MonitorUp,
-  Plus,
   Send,
   ShieldAlert,
   Square,
@@ -1052,29 +1051,6 @@ export function ChatWorkspace({
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
   }
 
-  async function newConversation() {
-    try {
-      const response = await fetch("/api/conversations", { method: "POST" });
-      const data = (await response.json()) as { conversation?: { id: string }; error?: { message?: string } };
-      if (!response.ok || !data.conversation) {
-        setError(data.error?.message ?? "Could not start a conversation.");
-        return;
-      }
-      setConversationId(data.conversation.id);
-      setConversations((previous) => [
-        { id: data.conversation!.id, title: "New conversation", updatedAt: new Date().toISOString() },
-        ...previous,
-      ]);
-      setMessages([]);
-      setError("");
-      if (typeof window !== "undefined") {
-        window.history.replaceState(null, "", `/app?c=${data.conversation.id}`);
-      }
-    } catch {
-      setError("Could not start a conversation.");
-    }
-  }
-
   async function grantPermission(request: PermissionRequest) {
     setGranting(request.connectorId);
     setError("");
@@ -1132,11 +1108,21 @@ export function ChatWorkspace({
     <div className="chat-layout">
       <aside className="conv-rail" aria-label="Conversations">
         <div className="conv-rail-head">
-          <button className="btn btn-primary btn-sm" type="button" onClick={newConversation}>
-            <Plus size={14} /> New conversation
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link href="/app/history" className="btn btn-sm" style={{ flex: 1, textAlign: "center" }}>
+              History
+            </Link>
+            <button className="btn btn-sm" type="button" onClick={async () => {
+              if (!conversationId) return;
+              if (!confirm("Archive this conversation? It will remain searchable but not active.")) return;
+              await fetch(`/api/conversations/${conversationId}/archive`, { method: "POST" });
+              window.location.href = "/app";
+            }} disabled={!conversationId}>
+              Archive
+            </button>
+          </div>
           <p className="tiny muted" style={{ margin: 0 }}>
-            Text and voice share every conversation.
+            One continuous conversation — older turns are archived, not deleted.
           </p>
         </div>
         <div className="conv-list">
