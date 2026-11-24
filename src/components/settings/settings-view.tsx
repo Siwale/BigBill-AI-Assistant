@@ -41,6 +41,11 @@ export function SettingsView({
   const [nameError, setNameError] = useState("");
   const [nameMessage, setNameMessage] = useState("");
 
+  const [pronouns, setPronouns] = useState("");
+  const [gender, setGender] = useState("not_specified");
+  const [presentation, setPresentation] = useState("");
+  const [personaDescription, setPersonaDescription] = useState("");
+
   const [tone, setTone] = useState(persona.tone);
   const [personaBusy, setPersonaBusy] = useState(false);
   const [personaMessage, setPersonaMessage] = useState("");
@@ -52,6 +57,23 @@ export function SettingsView({
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("");
+
+  useEffect(() => {
+    void fetch("/api/profile/identity").then((r) => r.json()).then((d) => {
+      const e = d.effective;
+      if (e) {
+        if (e.displayName) { setName(e.displayName); setSavedName(e.displayName); }
+        if (e.pronouns) setPronouns(e.pronouns);
+        if (e.gender) setGender(e.gender);
+        if (e.presentation) setPresentation(e.presentation);
+        if (e.personaDescription) setPersonaDescription(e.personaDescription);
+        if (e.voiceProvider) setProvider(e.voiceProvider);
+        if (e.voiceId) setVoiceId(e.voiceId);
+        if (e.voiceLocale) setLanguage(e.voiceLocale);
+        if (e.voiceRate) setRate(e.voiceRate);
+      }
+    }).catch(()=>{});
+  }, []);
 
   const [health, setHealth] = useState<Health | null>(null);
 
@@ -68,28 +90,27 @@ export function SettingsView({
     };
   }, []);
 
-  async function saveName(event: React.FormEvent) {
+  async function saveIdentity(event: React.FormEvent) {
     event.preventDefault();
     setNameError("");
     setNameMessage("");
     setNameBusy(true);
     try {
-      const response = await fetch("/api/profile/name", {
+      const response = await fetch("/api/profile/identity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ displayName: name, pronouns: pronouns || null, gender: gender || null, presentation: presentation || null, personaDescription: personaDescription || null }),
       });
-      const data = (await response.json()) as { displayName?: string; error?: { message?: string } };
-      if (!response.ok || !data.displayName) {
-        setNameError(data.error?.message ?? "Could not rename the assistant.");
+      const data = (await response.json()) as { effective?: { displayName?: string }; error?: { message?: string } };
+      if (!response.ok) {
+        setNameError(data.error?.message ?? "Could not save identity.");
         return;
       }
-      setSavedName(data.displayName);
-      setName(data.displayName);
-      setNameMessage("Name updated across the workspace, prompts and spoken replies.");
+      setSavedName(data.effective?.displayName ?? name);
+      setNameMessage(`Saved as ${data.effective?.displayName ?? name}${pronouns ? ` (${pronouns})` : ""} — voice will be checked for match on next save.`);
       router.refresh();
     } catch {
-      setNameError("Could not rename the assistant.");
+      setNameError("Could not save identity.");
     } finally {
       setNameBusy(false);
     }
@@ -125,14 +146,15 @@ export function SettingsView({
     setVoiceMessage("");
     setVoiceBusy(true);
     try {
-      const response = await fetch("/api/profile/voice", {
+      // Persist exact provider/voiceId for per-user voice — check provider metadata match with gender
+      const response = await fetch("/api/profile/identity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider: provider === "openai" ? "openai" : "browser",
+          voiceProvider: provider === "openai" ? "openai" : "browser",
           voiceId,
-          ...(language.trim() ? { language: language.trim() } : {}),
-          rate,
+          voiceLocale: language.trim() || null,
+          voiceRate: rate,
         }),
       });
       const data = (await response.json()) as { error?: { message?: string } };
@@ -140,7 +162,13 @@ export function SettingsView({
         setVoiceError(data.error?.message ?? "Could not save voice settings.");
         return;
       }
-      setVoiceMessage("Voice settings saved.");
+      // Also keep tenant voice for backward compat
+      await fetch("/api/profile/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider === "openai" ? "openai" : "browser", voiceId, ...(language.trim() ? { language: language.trim() } : {}), rate }),
+      }).catch(() => {});
+      setVoiceMessage("Voice saved — spoken replies will use this exact voice. If mismatched with gender, audition and re-save.");
       router.refresh();
     } catch {
       setVoiceError("Could not save voice settings.");
@@ -149,16 +177,35 @@ export function SettingsView({
     }
   }
 
-  function testVoice() {
+  async function testVoice() {
+    setVoiceError("");
+    // Try real provider voice first (server TTS), fallback to browser
+    try {
+      if (provider === "openai") {
+        const res = await fetch("/api/voice/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: `Hello, I'm ${savedName || "your assistant"}. This is how I sound.`, voiceId }) });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          if (typeof (audio as unknown as { setSinkId?: unknown }).setSinkId === "function" && language) {
+            try { await (audio as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(language); } catch {}
+          }
+          audio.onended = () => URL.revokeObjectURL(url);
+          await audio.play();
+          return;
+        }
+        throw new Error("Server voice unavailable");
+      }
+    } catch {
+      // fallback to browser
+    }
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       setVoiceError("This browser cannot speak aloud. Server speech is used when available.");
       return;
     }
     const synthesis = window.speechSynthesis;
     synthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(
-      `Hello, I'm ${savedName || "your assistant"}. This is how I sound.`,
-    );
+    const utterance = new SpeechSynthesisUtterance(`Hello, I'm ${savedName || "your assistant"}. This is how I sound.`);
     utterance.lang = language || navigator.language || "en-US";
     utterance.rate = rate;
     synthesis.speak(utterance);
@@ -167,34 +214,53 @@ export function SettingsView({
   return (
     <div className="stack">
       <div className="grid-2">
-        <form className="card stack" onSubmit={saveName}>
+        <form className="card stack" onSubmit={saveIdentity}>
           <div>
-            <h2 className="section-title">Assistant name</h2>
+            <h2 className="section-title">Assistant identity & voice</h2>
             <p className="section-sub">
-              Used in the interface, prompts and spoken greeting. There is no hardcoded default.
+              Per-user display name, pronouns, gender/persona and voice — tenant defaults are inherited unless you override. Preview uses the real provider voice.
             </p>
           </div>
           {nameError ? <div className="error" role="alert">{nameError}</div> : null}
           {nameMessage ? <div className="banner info" role="status">{nameMessage}</div> : null}
           <div className="field">
             <label htmlFor="settings-name">Display name</label>
-            <input
-              id="settings-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={40}
-              required
-            />
-            <span className="hint">Letters, spaces, apostrophes, periods and hyphens. Up to 40 characters.</span>
+            <input id="settings-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={40} required />
+            <span className="hint">Preview: “Hello, I’m {name || "your assistant"}{pronouns ? ` (${pronouns})` : ""}.” — saved per user, not tenant.</span>
+          </div>
+          <div className="grid-2">
+            <div className="field">
+              <label htmlFor="settings-pronouns">Pronouns (optional)</label>
+              <input id="settings-pronouns" value={pronouns} onChange={(e) => setPronouns(e.target.value)} placeholder="she/her, he/him, they/them" maxLength={30} />
+            </div>
+            <div className="field">
+              <label htmlFor="settings-gender">Gender / persona</label>
+              <select id="settings-gender" value={gender} onChange={(e) => setGender(e.target.value)}>
+                <option value="not_specified">Not specified</option>
+                <option value="female">Female / feminine</option>
+                <option value="male">Male / masculine</option>
+                <option value="non-binary">Non-binary / neutral</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+          </div>
+          <div className="field">
+            <label htmlFor="settings-presentation">Presentation (optional)</label>
+            <input id="settings-presentation" value={presentation} onChange={(e) => setPresentation(e.target.value)} placeholder="e.g. professional, friendly" maxLength={40} />
+          </div>
+          <div className="field">
+            <label htmlFor="settings-persona">Short role description (optional, bounded)</label>
+            <textarea id="settings-persona" value={personaDescription} onChange={(e) => setPersonaDescription(e.target.value)} maxLength={200} rows={2} placeholder="Guides tone and self-introduction, cannot override policy/tools." />
           </div>
           <div className="row">
-            <button className="btn btn-primary" type="submit" disabled={nameBusy || name.trim() === savedName}>
-              <Save size={14} /> {nameBusy ? "Saving…" : "Save name"}
+            <button className="btn btn-primary" type="submit" disabled={nameBusy}>
+              <Save size={14} /> {nameBusy ? "Saving…" : "Save identity"}
             </button>
             <button className="btn" type="button" onClick={testVoice}>
-              <Volume2 size={14} /> Hear it
+              <Volume2 size={14} /> Preview voice
             </button>
           </div>
+          <p className="tiny muted">Voice must match chosen gender/persona — if no suitable voice, audition/select before saving. Saved voice is used consistently for speech.</p>
         </form>
 
         <form className="card stack" onSubmit={saveVoice}>
