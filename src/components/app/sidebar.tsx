@@ -11,11 +11,13 @@ import {
   Camera,
   CheckSquare,
   FileText,
+  Headphones,
   LogOut,
   MessageSquare,
   Mic2,
   Settings,
   ShieldCheck,
+  Sparkles,
   Users,
 } from "lucide-react";
 
@@ -37,6 +39,7 @@ const NAV: Array<{
   countKey?: "tasks" | "incidents";
 }> = [
   { href: "/app", label: "Assistant", icon: MessageSquare, exact: true },
+  { href: "/app/environment", label: "Personal Environment", icon: Sparkles, exact: true },
   { href: "/app/tasks", label: "Tasks", icon: CheckSquare, countKey: "tasks" },
   { href: "/app/drafts", label: "Drafts", icon: FileText },
   { href: "/app/knowledge", label: "Knowledge", icon: BookOpen },
@@ -44,6 +47,8 @@ const NAV: Array<{
   { href: "/app/meetings", label: "Meetings", icon: Users },
   { href: "/app/vision", label: "Vision", icon: Camera },
   { href: "/app/devices", label: "Devices", icon: Mic2 },
+  { href: "/app/music", label: "Music", icon: Headphones },
+  { href: "/app/movies", label: "Movies", icon: Sparkles },
   { href: "/app/permissions", label: "Permissions", icon: ShieldCheck },
   { href: "/app/incidents", label: "Incidents", icon: AlertTriangle, countKey: "incidents" },
   { href: "/app/activity", label: "Activity", icon: Activity },
