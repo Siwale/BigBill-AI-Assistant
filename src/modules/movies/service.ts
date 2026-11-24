@@ -114,7 +114,7 @@ export async function addToWatchlist(params: {
   return created;
 }
 
-export async function whereToWatch(): { status: string; note: string } {
+export function whereToWatch(): { status: string; note: string } {
   const tmdbLicensed = Boolean(process.env.TMDB_COMMERCIAL_LICENSED);
   const justWatchPartner = Boolean(process.env.JUSTWATCH_PARTNER_KEY);
   if (!tmdbLicensed && !justWatchPartner) {
