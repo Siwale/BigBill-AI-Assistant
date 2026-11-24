@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview";
+    const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
     const safetyId = createHash("sha256")
       .update(`${session.user.tenantId}:${session.user.id}`)
       .digest("hex")

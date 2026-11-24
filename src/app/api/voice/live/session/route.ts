@@ -74,36 +74,45 @@ export async function POST(request: Request) {
     const safetyId = createHash("sha256").update(`${session.user.tenantId}:${session.user.id}`).digest("hex").slice(0, 32);
 
     // Server creates GPT-Live WebRTC session; browser SDP offer is forwarded per WebRTC quickstart
-    const liveRes = await fetch("https://api.openai.com/v1/live/sessions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-        "OpenAI-Safety-Identifier": safetyId,
-      },
-      body: JSON.stringify({
-        model: liveModel,
-        transport: { type: "webrtc" },
-        delegation: { type: "client" },
-        audio: {
-          input: { transcription: { model: "whisper-1" } },
-          output: { voice: voiceId ?? "alloy" },
+    let liveRes: Response;
+    try {
+      liveRes = await fetch("https://api.openai.com/v1/live/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+          "OpenAI-Safety-Identifier": safetyId,
         },
-        instructions,
-        // SDP offer is exchanged via the live/calls endpoint after session creation in some flows;
-        // for the documented WebRTC flow with transport webrtc, some implementations POST SDP to /v1/live/calls.
-        // We support both: create session then exchange SDP via /v1/live/calls if needed.
-      }),
-    });
-
-    if (!liveRes.ok) {
-      const text = await liveRes.text().catch(() => "");
-      // Map 404/403 to honest not_available without leaking raw key
+        body: JSON.stringify({
+          model: liveModel,
+          transport: { type: "webrtc" },
+          delegation: { type: "client" },
+          audio: {
+            input: { transcription: { model: "whisper-1" } },
+            output: { voice: voiceId ?? "alloy" },
+          },
+          instructions,
+        }),
+      });
+    } catch (e) {
       return NextResponse.json(
         {
           error: {
             code: "live_not_available",
-            message: `GPT-Live not available for this account/model (${liveModel}). Use record/transcribe fallback. Details: ${text.slice(0, 500)}`,
+            message: `GPT-Live not reachable (${liveModel}). Use Realtime fallback (gpt-realtime). Details: ${e instanceof Error ? e.message.slice(0, 500) : String(e).slice(0, 500)}`,
+          },
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (!liveRes.ok) {
+      const text = await liveRes.text().catch(() => "");
+      return NextResponse.json(
+        {
+          error: {
+            code: "live_not_available",
+            message: `GPT-Live not available for this account/model (${liveModel}). Use Realtime fallback (gpt-realtime). Details: ${text.slice(0, 500)}`,
           },
         },
         { status: 409, headers: { "Cache-Control": "no-store" } },
@@ -120,15 +129,23 @@ export async function POST(request: Request) {
     const expiresAt = liveData.expires_at ? new Date(liveData.expires_at * 1000).toISOString() : new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     // Now exchange SDP: POST to /v1/live/calls with the offer
-    const callsRes = await fetch("https://api.openai.com/v1/live/calls", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        "Content-Type": "application/sdp",
-        "OpenAI-Safety-Identifier": safetyId,
-      },
-      body: sdpOffer,
-    });
+    let callsRes: Response;
+    try {
+      callsRes = await fetch("https://api.openai.com/v1/live/calls", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          "Content-Type": "application/sdp",
+          "OpenAI-Safety-Identifier": safetyId,
+        },
+        body: sdpOffer,
+      });
+    } catch (e) {
+      return NextResponse.json(
+        { error: { code: "live_sdp_failed", message: `Live SDP exchange failed: ${e instanceof Error ? e.message.slice(0, 500) : String(e).slice(0, 500)}` } },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
 
     const ct = callsRes.headers.get("content-type") ?? "";
     if (!callsRes.ok || !ct.includes("application/sdp")) {

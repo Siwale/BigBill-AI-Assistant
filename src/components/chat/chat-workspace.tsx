@@ -207,6 +207,7 @@ export function ChatWorkspace({
   const voiceSessionRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const speechNetworkFailedRef = useRef(false);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const micAudioContextRef = useRef<AudioContext | null>(null);
   const micRafRef = useRef<number | null>(null);
@@ -462,7 +463,8 @@ export function ChatWorkspace({
     }
   }, []);
 
-  const startMicLevel = useCallback(async () => {
+  // Kept for diagnostics — not used in SpeechRecognition path (second getUserMedia would steal mic and cut out)
+  const _startMicLevel = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: devicePrefs.inputId ? { deviceId: { exact: devicePrefs.inputId } } : true,
@@ -802,7 +804,8 @@ export function ChatWorkspace({
     if (!id) return;
 
     const Recognition = getRecognitionCtor();
-    if (Recognition) {
+    // If browser speech previously failed with network, skip it and use server Whisper directly — no more cutting out
+    if (Recognition && !speechNetworkFailedRef.current) {
       await startVoiceSession(id, "browser");
       const recognition = new Recognition();
       recognition.lang = voice.language || navigator.language || "en-US";
@@ -823,16 +826,20 @@ export function ChatWorkspace({
       };
 
       recognition.onerror = (event) => {
+        console.error("[SpeechRecognition] error:", event.error, event.message);
         shouldSendRef.current = false;
-        stopMicLevel();
+        // No second mic stream for this path, so no stopMicLevel needed — avoid clearing a non-existent analyser
         if (event.error === "not-allowed" || event.error === "service-not-allowed") {
           setVoiceError("Microphone permission was blocked. Allow the microphone in your browser, or type instead.");
         } else if (event.error === "no-speech") {
           setVoiceError("No speech was heard. Try again or type instead.");
         } else if (event.error === "audio-capture") {
           setVoiceError("No microphone was found. Check your device, or type instead.");
+        } else if (event.error === "network") {
+          speechNetworkFailedRef.current = true;
+          setVoiceError("Browser speech network unavailable — switched to server transcription for next try. Tap mic again or use Realtime/Live.");
         } else if (event.error !== "aborted") {
-          setVoiceError("Speech recognition stopped. You can try again or type.");
+          setVoiceError(`Speech recognition stopped (${event.error}). You can try again or type.`);
         }
         setVoiceState("idle");
         void endVoiceSession();
@@ -854,7 +861,7 @@ export function ChatWorkspace({
       try {
         recognition.start();
         setVoiceState("listening");
-        void startMicLevel();
+        // Do not open a second getUserMedia for visualizer — SpeechRecognition has no MediaStream and a second stream can steal the mic (audio-capture / network) and cut out
       } catch {
         setVoiceError("The microphone could not start. Check your browser permissions.");
         setVoiceState("idle");
