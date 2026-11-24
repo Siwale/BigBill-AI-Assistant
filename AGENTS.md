@@ -13,7 +13,7 @@ These rules apply to every AI agent, script or automation in this repository.
 
 ## Non-negotiables
 
-- **Loop 2.4 active on feature branch `feat/loop2-4-full-duplex-voice`.** Loop 1 baseline `33182f2` is protected on `main`. Loop 2–2.3 merged at `c3915ca`.
+- **Loop 3 active on feature branch `feat/loop3-personal-device-media-hub`.** Loop 1 baseline `33182f2` is protected on `main`. Loops 2–2.4 merged at `d43606a`.
 - **No hardcoded assistant name.** It is user-assigned, stored in `assistant_profiles.display_name`, tenant-scoped and changeable.
 - **Voice is a first-release requirement.** It must be real speech input and output, not a decorative button.
 - **Text and voice share one assistant**: same conversation, profile, memory, permissions, tools and audit.
