@@ -31,12 +31,14 @@
     "postgres": "^3.4.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "three": "^0.187.0",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/three": "^0.187.0",
     "drizzle-kit": "^0.31.2",
     "eslint": "^9.29.0",
     "eslint-config-next": "^15.5.0",

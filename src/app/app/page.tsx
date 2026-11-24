@@ -1,7 +1,7 @@
 import { requireOnboardedPageSession } from "@/modules/auth/session";
 import { getConversation, listConversations, listMessages } from "@/modules/conversations/service";
 import { ChatWorkspace } from "@/components/chat/chat-workspace";
-import { AidaCore } from "@/components/command/aida-core";
+import { AidaAvatarStage } from "@/components/command/aida-avatar-stage";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,7 @@ export default async function AssistantPage({ searchParams }: { searchParams: Se
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16 }}>
-        <AidaCore state="idle" />
+        <AidaAvatarStage state="idle" />
         <div className="command-env" style={{ background: "var(--cmd-surface)", border: "1px solid var(--cmd-line)", borderRadius: "var(--cmd-radius)", padding: 16 }}>
           <h3 style={{ margin: 0, fontSize: 14, letterSpacing: 1, color: "var(--cmd-cyan)" }}>Current Focus</h3>
           <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--cmd-ink-soft)" }}>Ready for your next command. Ask {effective.displayName ?? session.profile.displayName ?? "your assistant"} to review a repository, prepare a briefing, or manage devices.</p>
