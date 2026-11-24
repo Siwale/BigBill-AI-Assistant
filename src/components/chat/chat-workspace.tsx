@@ -207,6 +207,7 @@ export function ChatWorkspace({
   const voiceSessionRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const speechNetworkFailedRef = useRef(false);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const micAudioContextRef = useRef<AudioContext | null>(null);
   const micRafRef = useRef<number | null>(null);
@@ -803,7 +804,8 @@ export function ChatWorkspace({
     if (!id) return;
 
     const Recognition = getRecognitionCtor();
-    if (Recognition) {
+    // If browser speech previously failed with network, skip it and use server Whisper directly — no more cutting out
+    if (Recognition && !speechNetworkFailedRef.current) {
       await startVoiceSession(id, "browser");
       const recognition = new Recognition();
       recognition.lang = voice.language || navigator.language || "en-US";
@@ -834,7 +836,8 @@ export function ChatWorkspace({
         } else if (event.error === "audio-capture") {
           setVoiceError("No microphone was found. Check your device, or type instead.");
         } else if (event.error === "network") {
-          setVoiceError("Speech service network error — check connection and try again, or use Realtime/Live.");
+          speechNetworkFailedRef.current = true;
+          setVoiceError("Browser speech network unavailable — switched to server transcription for next try. Tap mic again or use Realtime/Live.");
         } else if (event.error !== "aborted") {
           setVoiceError(`Speech recognition stopped (${event.error}). You can try again or type.`);
         }
