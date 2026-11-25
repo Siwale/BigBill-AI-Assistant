@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import * as THREE from "three";
 import type { AidaCoreState } from "./aida-core";
 import type { TimedViseme } from "@/modules/voice/viseme";
@@ -10,14 +11,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 /**
  * Loop 4 Aida avatar stage.
  *
- * Interim renderer: a procedural digital-human bust (face anatomy, blink,
- * gaze, jaw/viseme rig) built with the project's existing Three.js
- * dependency. No network fetch, no paid service.
- *
- * BLOCKER (documented in docs/loop4/reference-gap-analysis.md): no licensed
- * rigged human GLB is bundled yet. This stage exposes the same viseme/rig
- * adapter a GLB would drive (jawOpen/mouthWidth/gaze/blink weights), so a
- * licensed asset can replace the procedural meshes without changing callers.
+ * The existing Aida stage, backed by the bundled rigged Ara GLB.
  */
 
 type Props = {
@@ -94,13 +88,15 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
     scene.add(new THREE.AmbientLight(0x33415e, 0.7));
 
     const avatar = new THREE.Group();
+    avatar.visible = false;
     scene.add(avatar);
 
     let glbLoaded = false;
     let glbHead: THREE.Object3D | null = null;
-    let glbMouthMesh: THREE.Mesh | null = null;
+    const glbMorphMeshes: Array<THREE.Mesh & { morphTargetDictionary?: Record<string, number>; morphTargetInfluences?: number[] }> = [];
     let cancelled = false;
-    // Try to load real Aida GLB (Ara 3D Gen, cornrows, 186k tris, CC0) — fallback to procedural if unavailable
+    // Load the real Aida GLB. The supplied portrait remains the fallback; the
+    // procedural geometry below stays hidden at all times.
     const loader = new GLTFLoader();
     const startMs = Date.now();
     setAssetStatus({ state: "requesting", url: "/assets/aida/aida.glb" });
@@ -116,14 +112,22 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
           }
           let meshCount = 0;
           let skinnedCount = 0;
-          let morphCount = 0;
-          let boneCount = 0;
+          const morphNames = new Set<string>();
+          const bones = new Set<THREE.Bone>();
+          let triangleCount = 0;
           gltf.scene.traverse((obj) => {
-            const anyObj = obj as unknown as { isMesh?: boolean; isSkinnedMesh?: boolean; morphTargetDictionary?: Record<string, number>; skeleton?: { bones: unknown[] } };
+            const anyObj = obj as unknown as { isMesh?: boolean; isSkinnedMesh?: boolean; morphTargetDictionary?: Record<string, number>; morphTargetInfluences?: number[]; skeleton?: { bones: THREE.Bone[] }; geometry?: THREE.BufferGeometry };
             if (anyObj.isMesh) meshCount += 1;
             if (anyObj.isSkinnedMesh) skinnedCount += 1;
-            if (anyObj.morphTargetDictionary) morphCount += Object.keys(anyObj.morphTargetDictionary).length;
-            if (anyObj.skeleton) boneCount += (anyObj.skeleton.bones as unknown[]).length;
+            if (anyObj.morphTargetDictionary && anyObj.morphTargetInfluences) {
+              for (const name of Object.keys(anyObj.morphTargetDictionary)) morphNames.add(name);
+              glbMorphMeshes.push(obj as typeof glbMorphMeshes[number]);
+            }
+            if (anyObj.skeleton) anyObj.skeleton.bones.forEach((bone) => bones.add(bone));
+            if (anyObj.geometry) {
+              const indexCount = anyObj.geometry.index?.count ?? anyObj.geometry.attributes.position?.count ?? 0;
+              triangleCount += Math.floor(indexCount / 3);
+            }
           });
           if (meshCount === 0) {
             setAssetStatus({ state: "failed", code: "NO_VISIBLE_MESH", safeMessage: "No meshes in GLB" });
@@ -133,38 +137,44 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
             setAssetStatus({ state: "failed", code: "NO_SKINNED_MESH", safeMessage: "No skinned mesh — rig missing" });
             return;
           }
-          if (morphCount === 0) {
-            setAssetStatus({ state: "failed", code: "NO_FACE_MORPHS", safeMessage: "No morph targets — visemes unavailable" });
+          const requiredVisemes = ["viseme_PP", "viseme_FF", "viseme_TH", "viseme_DD", "viseme_kk", "viseme_CH", "viseme_SS", "viseme_nn", "viseme_RR", "viseme_aa", "viseme_E", "viseme_I", "viseme_O", "viseme_U"];
+          const missingVisemes = requiredVisemes.filter((name) => !morphNames.has(name));
+          if (missingVisemes.length > 0) {
+            setAssetStatus({ state: "failed", code: "NO_FACE_MORPHS", safeMessage: `Missing speech shapes: ${missingVisemes.join(", ")}` });
             return;
           }
-          setAssetStatus({ state: "validating", meshCount, skinnedMeshCount: skinnedCount, morphMeshCount: morphCount > 0 ? 1 : 0, boneCount });
+          setAssetStatus({ state: "validating", meshCount, skinnedMeshCount: skinnedCount, morphMeshCount: glbMorphMeshes.length, boneCount: bones.size });
           glbHead = gltf.scene;
-          glbHead.scale.set(0.95, 0.95, 0.95);
-          glbHead.position.set(0, -0.85, 0);
-          glbHead.traverse((obj) => {
-            const mesh = obj as THREE.Mesh;
-            const morphed = mesh as THREE.Mesh & { morphTargetDictionary?: Record<string, number>; morphTargetInfluences?: number[] };
-            if (morphed.morphTargetDictionary && morphed.morphTargetInfluences) {
-              if (!glbMouthMesh) glbMouthMesh = mesh;
-            }
-          });
-          avatar.visible = false;
-          scene.add(glbHead);
+          const bounds = new THREE.Box3().setFromObject(glbHead);
+          const height = bounds.max.y - bounds.min.y;
+          if (bounds.isEmpty() || !Number.isFinite(height) || height < 0.1 || triangleCount === 0) {
+            setAssetStatus({ state: "failed", code: "NO_VISIBLE_MESH", safeMessage: "GLB has no visible geometry bounds" });
+            return;
+          }
+          const center = bounds.getCenter(new THREE.Vector3());
+          const modelScale = 2.65 / height;
+          const characterRoot = new THREE.Group();
+          characterRoot.add(glbHead);
+          glbHead.position.sub(center);
+          characterRoot.scale.setScalar(modelScale);
+          characterRoot.position.set(0, -0.15, 0);
+          glbHead = characterRoot;
+          scene.add(characterRoot);
           glbLoaded = true;
-          setAssetStatus({ state: "loaded", assetVersion: "1.0.0 cornrows", triangleCount: 186356, morphTargetCount: morphCount, boneCount: boneCount || 163, durationMs: Date.now() - startMs });
-          const label = mount.querySelector("[data-aida-label]") as HTMLElement | null;
-          if (label) label.textContent = `AIDA 3D • ${stateRef.current.toUpperCase()} • Ara 3D Gen cornrows (186k) — CC0 — loaded`;
+          setAssetStatus({ state: "loaded", assetVersion: "1.0.0 cornrows", triangleCount, morphTargetCount: morphNames.size, boneCount: bones.size, durationMs: Date.now() - startMs });
         } catch (e) {
           setAssetStatus({ state: "failed", code: "ATTACH_FAILED", safeMessage: e instanceof Error ? e.message.slice(0, 100) : "Attach failed" });
         }
       },
       (ev) => {
+        if (cancelled) return;
         const loaded = (ev as unknown as { loaded: number; total?: number }).loaded ?? 0;
         const total = (ev as unknown as { total?: number }).total;
         setAssetStatus({ state: "downloading", loadedBytes: loaded, totalBytes: total });
       },
       (err) => {
-        const msg = err instanceof Error ? err.message : String(err);
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : "The GLB request failed";
         if (msg.includes("404") || msg.includes("Not Found")) {
           setAssetStatus({ state: "failed", code: "HTTP_NOT_OK", safeMessage: "GLB not found (404) — check /assets/aida/aida.glb" });
         } else {
@@ -172,6 +182,24 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
         }
       },
     );
+
+    const setGlbMorph = (name: string, weight: number) => {
+      const value = Math.max(0, Math.min(1, weight));
+      for (const mesh of glbMorphMeshes) {
+        const index = mesh.morphTargetDictionary?.[name];
+        if (index !== undefined && mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = value;
+      }
+    };
+    const clearGlbSpeech = () => {
+      for (const mesh of glbMorphMeshes) {
+        const dictionary = mesh.morphTargetDictionary;
+        const influences = mesh.morphTargetInfluences;
+        if (!dictionary || !influences) continue;
+        for (const [name, index] of Object.entries(dictionary)) {
+          if ((name.startsWith("viseme_") || name === "jawOpen") && influences[index] !== undefined) influences[index] = 0;
+        }
+      }
+    };
 
     // Cranium (procedural fallback — hidden when GLB loaded)
     const headGeo = new THREE.SphereGeometry(0.62, 48, 48);
@@ -357,6 +385,10 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
       const lvl = Math.max(0, Math.min(1, levelRef.current));
       if (!hidden && !prefersReduced) {
         frame += 1;
+        if (glbHead) {
+          glbHead.position.y = -0.15 + Math.sin(frame * 0.015) * 0.008;
+          glbHead.rotation.y = gazeX * 0.25 + (s === "listening" ? Math.sin(frame * 0.01) * 0.025 : 0);
+        }
         // Breathing
         avatar.position.y = Math.sin(frame * 0.015) * 0.02;
         // Blink every ~3-5s
@@ -365,9 +397,13 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
           blinking -= 1;
           const t = blinking / 8;
           const close = Math.sin((1 - t) * Math.PI);
+          setGlbMorph("eyeBlinkLeft", close);
+          setGlbMorph("eyeBlinkRight", close);
           for (const lid of lidMeshes) { lid.visible = close > 0.15; lid.scale.y = 0.75 * (1 - close * 0.7); }
           for (const g of eyeGroups) g.scale.y = 1 - close * 0.85;
         } else {
+          setGlbMorph("eyeBlinkLeft", 0);
+          setGlbMorph("eyeBlinkRight", 0);
           for (const lid of lidMeshes) lid.visible = false;
           for (const g of eyeGroups) g.scale.y += (1 - g.scale.y) * 0.3;
         }
@@ -391,59 +427,31 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
           browL.position.y += ((0.82 - focus * 0.02) - browL.position.y) * 0.1;
           browR.position.y += ((0.82 - focus * 0.02) - browR.position.y) * 0.1;
         }
+        setGlbMorph("browInnerUp", s === "listening" ? 0.1 : 0);
+        setGlbMorph("browDownLeft", focus ? 0.1 : 0);
+        setGlbMorph("browDownRight", focus ? 0.1 : 0);
         // Rings: rotate while searching/inspecting/analysing
         if (s === "searching" || s === "inspecting" || s === "thinking") rings.forEach((r, i) => { r.rotation.z += 0.004 + i * 0.002; });
         particles.rotation.y += 0.0008;
-        // Jaw / mouth: viseme timeline when speaking, rest otherwise — GLB morphTargets if available, else procedural
+        // Map the app's canonical viseme groups onto the GLB's real speech shapes.
         if (s === "speaking") {
           const v = visemesRef.current;
           const start = audioStartRef.current;
           const lvlClamped = Math.max(0, Math.min(1, lvl));
-          if (glbLoaded && glbMouthMesh) {
-            const morph = glbMouthMesh as unknown as { morphTargetInfluences?: number[]; morphTargetDictionary?: Record<string, number> };
-            if (morph.morphTargetInfluences && morph.morphTargetDictionary) {
-              // Reset all
-              for (let i = 0; i < morph.morphTargetInfluences.length; i++) morph.morphTargetInfluences[i] = 0;
-              if (v && start !== null) {
-                const elapsed = Date.now() - start;
-                const active = v.find((vi) => elapsed >= vi.startMs && elapsed < vi.endMs) ?? v[v.length - 1]!;
-                if (active) {
-                  const { jawOpen } = visemeToMouthState(active.viseme);
-                  const jawIdx = morph.morphTargetDictionary["jawOpen"] ?? morph.morphTargetDictionary["mouthOpen"] ?? 0;
-                  morph.morphTargetInfluences[jawIdx] = jawOpen;
-                }
-              } else {
-                const jawIdx = morph.morphTargetDictionary["jawOpen"] ?? 0;
-                morph.morphTargetInfluences[jawIdx] = lvlClamped * 0.8;
-              }
+          const elapsed = start === null ? null : Date.now() - start;
+          const active = elapsed === null ? null : v?.find((vi) => elapsed >= vi.startMs && elapsed < vi.endMs) ?? null;
+          if (glbLoaded && glbMorphMeshes.length > 0) {
+            clearGlbSpeech();
+            if (active && active.viseme !== "rest") {
+              const target = ({ bilabial: "viseme_PP", labiodental: "viseme_FF", dental: "viseme_TH", alveolar: "viseme_DD", rounded: "viseme_O", open: "viseme_aa", wide: "viseme_E", neutral: "viseme_nn" } as const)[active.viseme];
+              setGlbMorph(target, 0.72);
+              setGlbMorph("jawOpen", Math.min(0.55, visemeToMouthState(active.viseme).jawOpen * 0.5));
+            } else if (elapsed === null || !v) {
+              setGlbMorph("jawOpen", lvlClamped * 0.35);
             }
-          } else if (v && v.length > 0 && start !== null) {
-            const elapsed = Date.now() - start;
-            const active = v.find((vi) => elapsed >= vi.startMs && elapsed < vi.endMs) ?? (elapsed > (v[v.length - 1]!.endMs ?? 0) ? null : v[v.length - 1]!);
-            if (active) {
-              const { jawOpen, mouthWidth } = visemeToMouthState(active.viseme);
-              jaw.position.y = 0.18 - jawOpen * 0.09;
-              mouth.scale.y = Math.max(0.15, jawOpen * 1.6);
-              mouth.scale.x = 1 + (mouthWidth - 0.5) * 0.8;
-              lowerLip.position.y = 0.14 - jawOpen * 0.08;
-            } else {
-              jaw.position.y += (0.18 - jaw.position.y) * 0.2;
-              mouth.scale.y += (0.15 - mouth.scale.y) * 0.2;
-            }
-          } else {
-            jaw.position.y = 0.18 - lvl * 0.07;
-            mouth.scale.y = Math.max(0.15, lvl * 1.2);
-            lowerLip.position.y = 0.14 - lvl * 0.06;
           }
         } else {
-          if (!glbLoaded) {
-            jaw.position.y += (0.18 - jaw.position.y) * 0.15;
-            mouth.scale.y += (0.15 - mouth.scale.y) * 0.15;
-            mouth.scale.x += (1 - mouth.scale.x) * 0.15;
-          } else if (glbMouthMesh) {
-            const morph = glbMouthMesh as unknown as { morphTargetInfluences?: number[] };
-            if (morph.morphTargetInfluences) for (let i = 0; i < morph.morphTargetInfluences.length; i++) { const v = morph.morphTargetInfluences[i]; if (v !== undefined) morph.morphTargetInfluences[i] = v * 0.85; }
-          }
+          if (glbLoaded) clearGlbSpeech();
         }
       }
       renderer.render(scene, camera);
@@ -481,26 +489,28 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
 
   const assetLabel =
     assetStatus.state === "loaded"
-      ? `AIDA 3D • ${state.toUpperCase()} • Ara cornrows (186k) — CC0 — loaded`
+      ? `AIDA 3D • ${state.toUpperCase()} • Ara cornrows — loaded`
       : assetStatus.state === "failed"
         ? `AIDA 3D • ${state.toUpperCase()} • ${assetStatus.code}: ${assetStatus.safeMessage}`
         : assetStatus.state === "downloading"
           ? `AIDA 3D • ${state.toUpperCase()} • downloading ${assetStatus.loadedBytes}/${assetStatus.totalBytes ?? "?"}`
           : assetStatus.state === "requesting"
             ? `AIDA 3D • ${state.toUpperCase()} • requesting ${assetStatus.url}`
-            : `AIDA 3D • ${state.toUpperCase()} • procedural bust — ${assetStatus.state}`;
+            : `AIDA 3D • ${state.toUpperCase()} • loading real Aida model`;
+  const showPortraitFallback = webglFailed || assetStatus.state !== "loaded";
 
   return (
     <div ref={mountRef} style={{ width: "100%", height: 460, borderRadius: 16, overflow: "hidden", background: "radial-gradient(60% 55% at 50% 38%, rgba(31,159,233,0.12), transparent 70%), var(--aida-surface-1, #031423)", border: "1px solid rgba(29,117,181,0.45)", position: "relative" }} role="img" aria-label={`Aida avatar, ${state}`}>
-      <div data-aida-label style={{ position: "absolute", top: 12, right: 12, fontSize: 10, color: "var(--aida-text-muted)", letterSpacing: 1 }}>{assetLabel}</div>
+      {showPortraitFallback ? <Image src="/assets/aida/aida-poster.png" alt="Aida portrait while her 3D character loads" fill unoptimized sizes="100vw" style={{ objectFit: "contain", zIndex: 2, pointerEvents: "none" }} /> : null}
+      <div data-aida-label style={{ position: "absolute", zIndex: 4, top: 12, right: 12, fontSize: 10, color: "var(--aida-text-muted)", letterSpacing: 1 }}>{assetLabel}</div>
       {debugMode ? (
-        <div style={{ position: "absolute", bottom: 12, left: 12, fontSize: 10, color: "var(--aida-text-muted)", background: "rgba(0,0,0,0.5)", padding: "6px 8px", borderRadius: 8, maxWidth: "70%" }}>
+        <div style={{ position: "absolute", zIndex: 4, bottom: 12, left: 12, fontSize: 10, color: "var(--aida-text-muted)", background: "rgba(0,0,0,0.5)", padding: "6px 8px", borderRadius: 8, maxWidth: "70%" }}>
           <div>Asset: {assetStatus.state} {assetStatus.state === "loaded" ? `triangles ${assetStatus.triangleCount} morphs ${assetStatus.morphTargetCount} bones ${assetStatus.boneCount}` : ""}</div>
           <div>WebGL: {webglFailed ? "failed" : "ok"} • State: {state} • Level: {level.toFixed(2)}</div>
         </div>
       ) : null}
       {webglFailed ? (
-        <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", padding: 24, textAlign: "center", fontSize: 13, color: "var(--aida-text)" }}>
+        <div style={{ position: "absolute", zIndex: 3, inset: 0, display: "grid", placeItems: "center", padding: 24, textAlign: "center", fontSize: 13, color: "var(--aida-text)" }}>
           3D Aida is unavailable (WebGL context lost). You can continue with text and voice — full capability remains in the conversation.
         </div>
       ) : null}

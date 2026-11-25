@@ -8,7 +8,7 @@
   "scale": "1.75m height, as exported",
   "detail": "high",
   "triangles": 186356,
-  "rig": "full (163 bones)",
+  "rig": "full (165 glTF skin joints)",
   "faceShapes": true,
   "speechShapes": true,
   "blendShapes": 34,
