@@ -4,7 +4,7 @@ import { DevicePanel } from "@/components/device/device-panel";
 export const dynamic = "force-dynamic";
 
 export default async function DevicesPage() {
-  await requireOnboardedPageSession();
+  const session = await requireOnboardedPageSession();
   return (
     <div className="page">
       <header className="page-header">
@@ -13,7 +13,7 @@ export default async function DevicesPage() {
           <p>Test microphone, speakers, camera and screen share. Every control shows real capability and requires your explicit action.</p>
         </div>
       </header>
-      <DevicePanel />
+      <DevicePanel tenantId={session.user.tenantId} userId={session.user.id} />
     </div>
   );
 }

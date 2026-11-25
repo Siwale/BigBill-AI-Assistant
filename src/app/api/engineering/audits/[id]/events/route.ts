@@ -27,9 +27,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         start(controller) {
           const enc = new TextEncoder();
           for (const e of events.slice(-100)) {
-            controller.enqueue(enc.encode(`id: ${e.createdAt.toISOString()}\nevent: ${e.stage}\ndata: ${JSON.stringify({ stage: e.stage, status: e.status, message: e.message, createdAt: e.createdAt })}\n\n`));
+            controller.enqueue(enc.encode(`id: ${e.createdAt.toISOString()}\ndata: ${JSON.stringify({ stage: e.stage, status: e.status, message: e.message, createdAt: e.createdAt })}\n\n`));
           }
-          controller.enqueue(enc.encode(`event: heartbeat\ndata: {}\n\n`));
+          controller.enqueue(enc.encode(`: heartbeat\n\n`));
           controller.close();
         },
       });
