@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "assetPath": "public/assets/aida/aida.glb",
+  "fileSize": 13535192,
+  "contentHash": "8f7959d02e4113bef58be8919c1e30b600d9afc24f74246a0dfe7a752e08b858",
+  "license": "CC0 1.0 (MakeHuman CC0) — see LICENSE.txt",
+  "coordinateSystem": "metres, +Y up, character faces +Z",
+  "scale": "1.75m height, as exported",
+  "detail": "high",
+  "triangles": 186356,
+  "rig": "full (165 glTF skin joints)",
+  "faceShapes": true,
+  "speechShapes": true,
+  "blendShapes": 34,
+  "textures": "embedded PBR (albedo, normal, roughness, specular) 2K-4K",
+  "hair": "cornrows",
+  "source": "Ara 3D Gen 0.16.0 — preset The Female Executive, seed 20261125, young_african_female skin, darkbrown eyes"
+}

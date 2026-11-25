@@ -15,7 +15,8 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      {/* Browser extensions may inject attributes into <body> before hydration. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
