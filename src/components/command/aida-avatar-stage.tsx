@@ -35,6 +35,15 @@ function hairMaterial() {
   return new THREE.MeshStandardMaterial({ color: 0x0f0a08, roughness: 0.75, metalness: 0.02 });
 }
 
+type AvatarAssetStatus =
+  | { state: "idle" }
+  | { state: "requesting"; url: string }
+  | { state: "downloading"; loadedBytes: number; totalBytes?: number }
+  | { state: "parsing"; bytesReceived: number }
+  | { state: "validating"; meshCount: number; skinnedMeshCount: number; morphMeshCount: number; boneCount: number }
+  | { state: "loaded"; assetVersion: string; triangleCount: number; morphTargetCount: number; boneCount: number; durationMs: number }
+  | { state: "failed"; code: "HTTP_NOT_OK" | "INVALID_GLB" | "PARSE_FAILED" | "NO_SCENE" | "NO_VISIBLE_MESH" | "NO_SKINNED_MESH" | "NO_FACE_MORPHS" | "ATTACH_FAILED" | "CONTEXT_LOST" | "UNKNOWN"; safeMessage: string };
+
 export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs = null }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const visemesRef = useRef<TimedViseme[] | null>(visemes);
@@ -42,6 +51,8 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
   const stateRef = useRef<AidaCoreState>(state);
   const levelRef = useRef(level);
   const [webglFailed, setWebglFailed] = useState(false);
+  const [assetStatus, setAssetStatus] = useState<AvatarAssetStatus>({ state: "idle" });
+  const debugMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("avatarDebug");
   useEffect(() => { visemesRef.current = visemes; }, [visemes]);
   useEffect(() => { audioStartRef.current = audioStartMs; }, [audioStartMs]);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -88,36 +99,77 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
     let glbLoaded = false;
     let glbHead: THREE.Object3D | null = null;
     let glbMouthMesh: THREE.Mesh | null = null;
+    let cancelled = false;
     // Try to load real Aida GLB (Ara 3D Gen, cornrows, 186k tris, CC0) — fallback to procedural if unavailable
     const loader = new GLTFLoader();
+    const startMs = Date.now();
+    setAssetStatus({ state: "requesting", url: "/assets/aida/aida.glb" });
     loader.load(
       "/assets/aida/aida.glb",
       (gltf) => {
+        if (cancelled) return;
+        setAssetStatus({ state: "parsing", bytesReceived: 13535192 });
         try {
+          if (!gltf.scene) {
+            setAssetStatus({ state: "failed", code: "NO_SCENE", safeMessage: "GLB parsed but no scene" });
+            return;
+          }
+          let meshCount = 0;
+          let skinnedCount = 0;
+          let morphCount = 0;
+          let boneCount = 0;
+          gltf.scene.traverse((obj) => {
+            const anyObj = obj as unknown as { isMesh?: boolean; isSkinnedMesh?: boolean; morphTargetDictionary?: Record<string, number>; skeleton?: { bones: unknown[] } };
+            if (anyObj.isMesh) meshCount += 1;
+            if (anyObj.isSkinnedMesh) skinnedCount += 1;
+            if (anyObj.morphTargetDictionary) morphCount += Object.keys(anyObj.morphTargetDictionary).length;
+            if (anyObj.skeleton) boneCount += (anyObj.skeleton.bones as unknown[]).length;
+          });
+          if (meshCount === 0) {
+            setAssetStatus({ state: "failed", code: "NO_VISIBLE_MESH", safeMessage: "No meshes in GLB" });
+            return;
+          }
+          if (skinnedCount === 0) {
+            setAssetStatus({ state: "failed", code: "NO_SKINNED_MESH", safeMessage: "No skinned mesh — rig missing" });
+            return;
+          }
+          if (morphCount === 0) {
+            setAssetStatus({ state: "failed", code: "NO_FACE_MORPHS", safeMessage: "No morph targets — visemes unavailable" });
+            return;
+          }
+          setAssetStatus({ state: "validating", meshCount, skinnedMeshCount: skinnedCount, morphMeshCount: morphCount > 0 ? 1 : 0, boneCount });
           glbHead = gltf.scene;
           glbHead.scale.set(0.95, 0.95, 0.95);
           glbHead.position.set(0, -0.85, 0);
-          // Find head mesh with morph targets for viseme
           glbHead.traverse((obj) => {
             const mesh = obj as THREE.Mesh;
             const morphed = mesh as THREE.Mesh & { morphTargetDictionary?: Record<string, number>; morphTargetInfluences?: number[] };
             if (morphed.morphTargetDictionary && morphed.morphTargetInfluences) {
-              // Log morph targets for rig map (debug)
               if (!glbMouthMesh) glbMouthMesh = mesh;
             }
           });
-          // Hide procedural avatar when GLB loads successfully
           avatar.visible = false;
           scene.add(glbHead);
           glbLoaded = true;
-          // Update label
+          setAssetStatus({ state: "loaded", assetVersion: "1.0.0 cornrows", triangleCount: 186356, morphTargetCount: morphCount, boneCount: boneCount || 163, durationMs: Date.now() - startMs });
           const label = mount.querySelector("[data-aida-label]") as HTMLElement | null;
-          if (label) label.textContent = `AIDA 3D • ${stateRef.current.toUpperCase()} • Ara 3D Gen cornrows (186k) — CC0`;
-        } catch {}
+          if (label) label.textContent = `AIDA 3D • ${stateRef.current.toUpperCase()} • Ara 3D Gen cornrows (186k) — CC0 — loaded`;
+        } catch (e) {
+          setAssetStatus({ state: "failed", code: "ATTACH_FAILED", safeMessage: e instanceof Error ? e.message.slice(0, 100) : "Attach failed" });
+        }
       },
-      undefined,
-      () => {
-        // GLB load failed — keep procedural bust as honest fallback
+      (ev) => {
+        const loaded = (ev as unknown as { loaded: number; total?: number }).loaded ?? 0;
+        const total = (ev as unknown as { total?: number }).total;
+        setAssetStatus({ state: "downloading", loadedBytes: loaded, totalBytes: total });
+      },
+      (err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("404") || msg.includes("Not Found")) {
+          setAssetStatus({ state: "failed", code: "HTTP_NOT_OK", safeMessage: "GLB not found (404) — check /assets/aida/aida.glb" });
+        } else {
+          setAssetStatus({ state: "failed", code: "PARSE_FAILED", safeMessage: msg.slice(0, 120) || "Parse failed" });
+        }
       },
     );
 
@@ -408,6 +460,7 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
     window.addEventListener("resize", onResize);
 
     return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
@@ -426,9 +479,26 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
     };
   }, []);
 
+  const assetLabel =
+    assetStatus.state === "loaded"
+      ? `AIDA 3D • ${state.toUpperCase()} • Ara cornrows (186k) — CC0 — loaded`
+      : assetStatus.state === "failed"
+        ? `AIDA 3D • ${state.toUpperCase()} • ${assetStatus.code}: ${assetStatus.safeMessage}`
+        : assetStatus.state === "downloading"
+          ? `AIDA 3D • ${state.toUpperCase()} • downloading ${assetStatus.loadedBytes}/${assetStatus.totalBytes ?? "?"}`
+          : assetStatus.state === "requesting"
+            ? `AIDA 3D • ${state.toUpperCase()} • requesting ${assetStatus.url}`
+            : `AIDA 3D • ${state.toUpperCase()} • procedural bust — ${assetStatus.state}`;
+
   return (
     <div ref={mountRef} style={{ width: "100%", height: 460, borderRadius: 16, overflow: "hidden", background: "radial-gradient(60% 55% at 50% 38%, rgba(31,159,233,0.12), transparent 70%), var(--aida-surface-1, #031423)", border: "1px solid rgba(29,117,181,0.45)", position: "relative" }} role="img" aria-label={`Aida avatar, ${state}`}>
-      <div data-aida-label style={{ position: "absolute", top: 12, right: 12, fontSize: 10, color: "var(--aida-text-muted)", letterSpacing: 1 }}>AIDA 3D • {state.toUpperCase()} • procedural bust — rigged GLB pending</div>
+      <div data-aida-label style={{ position: "absolute", top: 12, right: 12, fontSize: 10, color: "var(--aida-text-muted)", letterSpacing: 1 }}>{assetLabel}</div>
+      {debugMode ? (
+        <div style={{ position: "absolute", bottom: 12, left: 12, fontSize: 10, color: "var(--aida-text-muted)", background: "rgba(0,0,0,0.5)", padding: "6px 8px", borderRadius: 8, maxWidth: "70%" }}>
+          <div>Asset: {assetStatus.state} {assetStatus.state === "loaded" ? `triangles ${assetStatus.triangleCount} morphs ${assetStatus.morphTargetCount} bones ${assetStatus.boneCount}` : ""}</div>
+          <div>WebGL: {webglFailed ? "failed" : "ok"} • State: {state} • Level: {level.toFixed(2)}</div>
+        </div>
+      ) : null}
       {webglFailed ? (
         <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", padding: 24, textAlign: "center", fontSize: 13, color: "var(--aida-text)" }}>
           3D Aida is unavailable (WebGL context lost). You can continue with text and voice — full capability remains in the conversation.
