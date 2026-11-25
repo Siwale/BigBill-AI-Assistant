@@ -190,7 +190,7 @@ export function CommandShell({ assistantName, userName, workspaceName, children,
           </nav>
         ) : null}
 
-        <main style={{ flex: 1, padding: 20, minWidth: 0, overflow: "auto" }}>{children}</main>
+        <main className="aida-app-main" style={{ flex: 1, padding: 20, minWidth: 0, overflow: "auto" }}>{children}</main>
       </div>
 
       {isCommandHome ? null : (

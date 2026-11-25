@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AidaAvatarStage } from "@/components/command/aida-avatar-stage";
 import type { AidaCoreState } from "@/components/command/aida-core";
+import { Activity, Brain, Check, ChevronRight, Code2, FileText, Focus, GitBranch, Layers3, Search, ShieldCheck } from "lucide-react";
 
 type StageStatus = "pending" | "active" | "completed" | "skipped" | "failed";
 type Stage = { id: string; label: string; status: StageStatus };
@@ -169,37 +170,34 @@ export function EngineeringWorkspace() {
   const ribbon: Stage[] = useMemo(() => {
     const mapActive: Record<string, AidaCoreState> = { THINKING: "thinking", SEARCHING: "searching", ANALYSING: "inspecting", VERIFYING: "verifying", REPORTING: "idle" };
     return RIBBON_ORDER.map((id) => {
-      let status: StageStatus = "pending";
-      if (id === "THINKING" && (coreState === "thinking")) status = "active";
-      if (id === "SEARCHING" && coreState === "searching") status = "active";
-      if (id === "ANALYSING" && coreState === "inspecting") status = "active";
-      if (id === "VERIFYING" && coreState === "verifying") status = "active";
-      void mapActive;
+      const reported = stages[id];
+      let status: StageStatus = reported === "completed" ? "completed" : reported === "failed" ? "failed" : "pending";
+      if (reported !== "completed" && reported !== "failed" && mapActive[id] === coreState && coreState !== "idle") status = "active";
       return { id, label: id, status };
     });
-  }, [coreState]);
+  }, [coreState, stages]);
 
   const focusLabel = coreState === "idle" ? "Ready" : coreState === "inspecting" ? "Security analysis" : coreState === "searching" ? "Searching sources" : coreState === "verifying" ? "Verifying findings" : coreState === "thinking" ? "Thinking" : coreState;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="aida-engineering-page">
       <div className="aida-grid-eng">
         {/* LEFT STACK */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <section className="aida-panel" style={{ padding: 16 }} aria-label="Engineering request">
-            <h3 className="aida-panel-title">Engineering Request</h3>
+        <div className="aida-left-stack">
+          <section className="aida-panel aida-request-card" aria-label="Engineering request">
+            <h3 className="aida-panel-title"><Code2 /> Engineering Request</h3>
             <div style={{ marginTop: 10, background: "rgba(2,8,18,0.6)", border: "1px solid var(--aida-border)", borderRadius: 12, padding: 12, fontSize: 13, color: "var(--aida-text)" }}>
               {activity.length > 0 ? (activity[activity.length - 1]?.msg ?? "") : "No active audit. Start a review from the command composer or connect the engineering companion."}
             </div>
-            <div className="aida-meta" style={{ marginTop: 10, display: "grid", gap: 6 }}>
-              <div>Engine: <span style={{ color: "var(--aida-text)" }}>{forge === "not_configured" ? "Forge (not connected)" : `Forge (${forge})`}</span></div>
-              <div>Companion: <span style={{ color: companion === "available" ? "var(--aida-success)" : "var(--aida-amber)" }}>{companion}</span></div>
-              <div>Mode: <span style={{ color: "var(--aida-text)" }}>Full Audit (Evidence)</span></div>
+            <div className="aida-request-meta">
+              <div><span>Engine</span><b>{forge === "not_configured" ? "Forge · not connected" : `Forge · ${forge}`}</b></div>
+              <div><span>Companion</span><b className={companion === "available" ? "is-connected" : ""}>{companion}</b></div>
+              <div><span>Mode</span><b>Full Audit · Evidence</b></div>
             </div>
           </section>
 
-          <section className="aida-panel" style={{ padding: 16 }} aria-label="Repository overview">
-            <h3 className="aida-panel-title">Repository Overview</h3>
+          <section className="aida-panel aida-repo-card" aria-label="Repository overview">
+            <h3 className="aida-panel-title"><GitBranch /> Repository Overview</h3>
             {repo ? (
               <dl className="aida-meta" style={{ marginTop: 10, display: "grid", gridTemplateColumns: "110px 1fr", gap: "6px 10px" }}>
                 <dt>Repository</dt><dd style={{ margin: 0, color: "var(--aida-text)" }}>{repo.name}</dd>
@@ -215,28 +213,29 @@ export function EngineeringWorkspace() {
             )}
           </section>
 
-          <section className="aida-panel" style={{ padding: 16 }} aria-label="Current focus">
-            <h3 className="aida-panel-title">Current Focus</h3>
+          <section className="aida-panel aida-focus-card" aria-label="Current focus">
+            <h3 className="aida-panel-title"><Focus /> Current Focus</h3>
             <div className="aida-body" style={{ marginTop: 6, color: "var(--aida-cyan-2)" }}>{focusLabel}</div>
             <div className="aida-meta" style={{ marginTop: 4 }}>
               {activity.length > 0 ? (activity[activity.length - 1]?.msg ?? "") : "Idle — no analysis running."}
             </div>
-            <div style={{ marginTop: 10, height: 6, background: "rgba(31,159,233,0.12)", borderRadius: 999, overflow: "hidden" }} role="progressbar" aria-label="Analysis progress" aria-valuetext={activity.length > 0 ? "in progress" : "idle"}>
-              {activity.length > 0 ? <div style={{ width: "100%", height: "100%", background: "linear-gradient(90deg, var(--aida-cyan-2), var(--aida-cyan-4))", opacity: 0.7 }} /> : null}
+            <div style={{ marginTop: 10, height: 6, background: "rgba(31,159,233,0.12)", borderRadius: 999, overflow: "hidden" }} role="progressbar" aria-label="Analysis progress" aria-valuetext={coreState === "idle" ? "idle" : "in progress"}>
+              {coreState !== "idle" ? <div className="aida-focus-progress" /> : null}
             </div>
           </section>
         </div>
 
         {/* CENTRE: Aida stage + vertical timeline */}
-        <div className="aida-centre" style={{ display: "flex", gap: 16, alignItems: "stretch", minWidth: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <AidaAvatarStage state={coreState} />
-            <div style={{ textAlign: "center", marginTop: 8 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 3, color: "var(--aida-text-strong)" }}>AIDA</div>
-              <div className="aida-meta">{coreState === "idle" ? "Ready" : `${coreState.charAt(0).toUpperCase()}${coreState.slice(1)}…`}</div>
+        <div className="aida-centre">
+          <div className="aida-hero">
+            <AidaAvatarStage state={coreState} height="100%" />
+            <div className="aida-hero-caption">
+              <strong>AIDA</strong>
+              <span>{coreState === "idle" ? "Ready" : `${coreState.charAt(0).toUpperCase()}${coreState.slice(1)}…`}</span>
+              <Activity aria-hidden="true" />
             </div>
           </div>
-          <ol className="aida-timeline" aria-label="Engineering progress" style={{ width: 210, flex: "0 0 auto", paddingTop: 8 }}>
+          <ol className="aida-timeline" aria-label="Engineering progress">
             {timeline.map((t) => (
               <li key={t.id}>
                 <span className={`aida-dot${t.status === "completed" ? " done" : t.status === "active" ? " active" : t.status === "failed" ? " failed" : ""}`} aria-hidden>
@@ -249,10 +248,10 @@ export function EngineeringWorkspace() {
         </div>
 
         {/* RIGHT STACK */}
-        <div className="aida-right-stack" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <section className="aida-panel" style={{ padding: 16, maxHeight: 340, overflow: "auto" }} aria-label="Live activity">
+        <div className="aida-right-stack">
+          <section className="aida-panel aida-activity-card" aria-label="Live activity">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 className="aida-panel-title">› Live Activity</h3>
+              <h3 className="aida-panel-title"><ChevronRight /> Live Activity</h3>
               <span style={{ fontSize: 10, background: liveConnected ? "var(--aida-success)" : "var(--aida-amber)", color: "#020812", padding: "2px 8px", borderRadius: 20 }}>● {liveConnected ? "Live" : "Offline"}</span>
             </div>
             {error ? <p className="aida-meta">{error}</p> : null}
@@ -272,9 +271,9 @@ export function EngineeringWorkspace() {
             <p className="aida-meta" style={{ marginTop: 8, fontSize: 10 }}>Sanitised summaries only — no secrets, prompts or raw source.</p>
           </section>
 
-          <section className="aida-panel" style={{ padding: 16 }} aria-label="Findings">
+          <section className="aida-panel aida-findings-card" aria-label="Findings">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 className="aida-panel-title">Findings (Live)</h3>
+              <h3 className="aida-panel-title"><Layers3 /> Findings (Live)</h3>
               <span style={{ fontSize: 11, background: "rgba(31,159,233,0.15)", padding: "4px 10px", borderRadius: 20, color: "var(--aida-text)" }}>
                 {totalFindings === null ? "no audit yet" : `${totalFindings} finding${totalFindings === 1 ? "" : "s"}`}
               </span>
@@ -301,8 +300,10 @@ export function EngineeringWorkspace() {
       <div className="aida-panel aida-ribbon" role="status" aria-label="Pipeline stages">
         {ribbon.map((s, i) => (
           <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-            <div className={`aida-stage${s.status === "active" && s.id === "THINKING" ? " active-thinking" : s.status === "active" ? " active" : s.status === "completed" ? " done" : ""}`} style={{ flex: 1 }}>
-              {s.status === "completed" ? "✓ " : ""}{s.label}
+            <div className={`aida-stage${s.status === "active" && s.id === "THINKING" ? " active-thinking" : s.status === "active" ? " active" : s.status === "completed" ? " done" : ""}`} aria-current={s.status === "active" ? "step" : undefined}>
+              {s.id === "THINKING" ? <Brain /> : s.id === "SEARCHING" ? <Search /> : s.id === "ANALYSING" ? <Code2 /> : s.id === "VERIFYING" ? <ShieldCheck /> : <FileText />}
+              <span>{s.label}</span>
+              <i aria-hidden="true">{s.status === "completed" ? <Check /> : "········"}</i>
             </div>
             {i < ribbon.length - 1 ? <span style={{ color: "var(--aida-border-strong)" }}>›</span> : null}
           </div>
