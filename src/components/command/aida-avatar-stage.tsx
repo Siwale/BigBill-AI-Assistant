@@ -16,6 +16,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 type Props = {
   state: AidaCoreState;
+  height?: number | string;
   level?: number;
   visemes?: TimedViseme[] | null;
   audioStartMs?: number | null;
@@ -38,7 +39,7 @@ type AvatarAssetStatus =
   | { state: "loaded"; assetVersion: string; triangleCount: number; morphTargetCount: number; boneCount: number; durationMs: number }
   | { state: "failed"; code: "HTTP_NOT_OK" | "INVALID_GLB" | "PARSE_FAILED" | "NO_SCENE" | "NO_VISIBLE_MESH" | "NO_SKINNED_MESH" | "NO_FACE_MORPHS" | "ATTACH_FAILED" | "CONTEXT_LOST" | "UNKNOWN"; safeMessage: string };
 
-export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs = null }: Props) {
+export function AidaAvatarStage({ state, height = 460, level = 0, visemes = null, audioStartMs = null }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const visemesRef = useRef<TimedViseme[] | null>(visemes);
   const audioStartRef = useRef<number | null>(audioStartMs);
@@ -500,7 +501,7 @@ export function AidaAvatarStage({ state, level = 0, visemes = null, audioStartMs
   const showPortraitFallback = webglFailed || assetStatus.state !== "loaded";
 
   return (
-    <div ref={mountRef} style={{ width: "100%", height: 460, borderRadius: 16, overflow: "hidden", background: "radial-gradient(60% 55% at 50% 38%, rgba(31,159,233,0.12), transparent 70%), var(--aida-surface-1, #031423)", border: "1px solid rgba(29,117,181,0.45)", position: "relative" }} role="img" aria-label={`Aida avatar, ${state}`}>
+    <div ref={mountRef} className="aida-avatar-stage" style={{ width: "100%", height, borderRadius: 16, overflow: "hidden", background: "radial-gradient(60% 55% at 50% 38%, rgba(31,159,233,0.12), transparent 70%), var(--aida-surface-1, #031423)", border: "1px solid rgba(29,117,181,0.45)", position: "relative" }} role="img" aria-label={`Aida avatar, ${state}`}>
       {showPortraitFallback ? <Image src="/assets/aida/aida-poster.png" alt="Aida portrait while her 3D character loads" fill unoptimized sizes="100vw" style={{ objectFit: "contain", zIndex: 2, pointerEvents: "none" }} /> : null}
       <div data-aida-label style={{ position: "absolute", zIndex: 4, top: 12, right: 12, fontSize: 10, color: "var(--aida-text-muted)", letterSpacing: 1 }}>{assetLabel}</div>
       {debugMode ? (
