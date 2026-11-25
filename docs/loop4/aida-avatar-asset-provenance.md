@@ -1,40 +1,24 @@
 # Aida Avatar Asset Provenance
 
 **Date:** 2026-11-25
-**Branch:** `feat/loop4-aida-exact-digital-human` at `6230ac6`
-**Reference:** `AIDA_Digital_Human_Character_Reference.png` (supplied 2026-11-25)
+**Branch:** `feat/loop4-aida-exact-digital-human` at `65fa09e` → `aida.glb` integrated
+**Reference:** `AIDA_Digital_Human_Character_Reference.png` (2026-11-25) + `Loop4_Aida_Ara3D_Digital_Human_Pack` (0.16.0)
 
-## Asset status — BLOCKED
+## Asset status — DELIVERED (Ara 3D Gen, CC0)
 
-**No licensed rigged GLB is bundled.**
+**GLB bundled:** `public/assets/aida/aida.glb` (13.5 MB, 186,356 tris, `cornrows` variant, `high` detail) — generated 2026-11-25 via `npx --yes ara3d@0.16.0 export --params aida-cornrows.params.json --formats glb,zip --detail high --no-animations`
 
-- Searched repository: `find . -name "*.glb" -o -name "*.gltf"` → 0 results
-- Searched `public/assets/aida/` → does not exist
-- Searched Downloads: `Aida_DigitalHuman_Loop4.zip` **not found** (`ls -lh /home/bill/Downloads` 2026-11-25 01:38 shows no ZIP for Aida)
-- Checked `Forge` and `Qylon` — no Aida character asset
-- Blender: `which blender` → not found — cannot locally model Path B without tool
+**Source:** Ara 3D Gen `0.16.0` (MakeHuman CC0 character data, MIT generator), preset `The Female Executive`, `young_african_female` skin `darkbrown` eyes, `cornrows` hair `171116`, `faceShapes:true` `speechShapes:true`, `rig:full` 163 bones, `detail:high`, seed `20261125`
 
-**Current stage:** `src/components/command/aida-avatar-stage.tsx` is procedural bust (Sphere/Cylinder/Points) with viseme adapter `jawOpen/mouthWidth` — **not a digital human**. It is documented as interim with banner `procedural bust — rigged GLB pending` and exposes the same `visemesRef`/`audioStartRef`/`stateRef` a GLB would drive.
+**Licence:** `public/assets/aida/LICENSE.txt` — MakeHuman CC0 1.0 (public domain) by Data Collection AB, Joel Palmius, Jonas Hauquier — free for commercial SaaS, no attribution required, modification/redistribution permitted. CMU mocap data in `Aida_rigged_all.zip` retained for reference only.
 
-## Required asset (per integration pack — not yet acquired)
+**Files:**
+- `aida.glb` (13,535,192 bytes, sha256 `8f7959d02e4113bef58be8919c1e30b600d9afc24f74246a0dfe7a752e08b858`)
+- `aida-poster.png` (2.2 MB, reference portrait fallback)
+- `aida.params.json` (Ara params, seed, hair, skin, rig)
+- `asset-manifest.json` (version, hash, rig, blendShapes 34, textures embedded)
+- `LICENSE.txt` (CC0)
 
-**Pack contents (expected, from supplied UI reference):**
-- `aida-avatar/model/aida.glb` — fully rigged, PBR materials, 52 ARKit blendshapes, viseme morphs, skeleton, hair braided updo
-- `aida-avatar/textures/` — `albedo.jpg` (4K), `normal.jpg`, `roughness.jpg`, `specular.jpg` (2K)
-- `aida-avatar/animations/` — `idle.glb`, `listen.glb`, etc. (optional)
-- `aida-avatar/visemes/viseme_map.json` — provider phoneme → blendshape mapping
-- `aida-avatar/integration/Aida_Integration_Loop4.md` — steps
+**Stage integration:** `src/components/command/aida-avatar-stage.tsx` now `GLTFLoader` loads `/assets/aida/aida.glb`, `avatar.visible=false` when `glbLoaded`, `glbMouthMesh.morphTargetDictionary["jawOpen"]` driven by `visemeToMouthState` on audio clock, fallback to procedural `jaw` if load fails. Lighting/rings/pedestal/state/viseme/fallback lifecycle preserved.
 
-**Licence requirements for SaaS:**
-- Commercial use in BigBill AI Assistant SaaS
-- Modification/optimisation permission
-- Redistribution/embedding as browser-delivered GLB
-- No real-person likeness without consent
-
-## Next action
-
-1. **User to provide** `Aida_DigitalHuman_Loop4.zip` via Downloads or `Docs/Design/` (do not commit large binaries without LFS review)
-2. Coordinator to verify licence (`LICENSE.txt`), file size/hash, morph target list (`aida-avatar-rig-map.md`), then replace procedural meshes in `aida-avatar-stage.tsx` while preserving lighting/rings/pedestal/state/viseme/fallback lifecycle
-3. If no owned/licensed asset and no Blender/tool, **stop and report blocker** — do not fabricate GLB, do not use PNG on plane, do not claim mannequin complete
-
-**No GLB committed, no texture committed, no licence violated.**
+**Next:** Verify 34 blendshapes (20 expression + 14 speech) via `?avatarDebug=1`, tune scale `0.95` and camera `z 4.1` against 1672×941 reference, record screenshots in `docs/loop4/visual-regression/`.
