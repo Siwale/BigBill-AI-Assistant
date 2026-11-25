@@ -7,7 +7,7 @@ import { DevicePanel } from "@/components/device/device-panel";
 type MusicFav = { id: string; title: string; provider: string };
 type WatchlistEntry = { id: string; title: string; provider: string };
 
-export function PersonalEnvironment() {
+export function PersonalEnvironment({ tenantId, userId, conversationId }: { tenantId: string; userId: string; conversationId: string }) {
   const [music, setMusic] = useState<MusicFav[]>([]);
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
   const [musicGate, setMusicGate] = useState<string>("");
@@ -28,7 +28,7 @@ export function PersonalEnvironment() {
       <section className="card">
         <h3 className="section-title">Vision</h3>
         <p className="tiny muted">One-shot + bounded sessions (1 frame/2s, 2-min limit, transient retention). GPT-Live does not see images directly — vision backend provides grounded observations.</p>
-        <VisionPanel conversationId={null} />
+        <VisionPanel conversationId={conversationId} />
         <div className="tiny muted" style={{ marginTop: 8 }}>Status: {visualStatus} — raw frames not persisted by default.</div>
       </section>
 
@@ -40,7 +40,7 @@ export function PersonalEnvironment() {
           <span className="badge">Home Assistant: {ha}</span>
           <span className="tiny muted">Companion 127.0.0.1:8787 — allowlisted BlueZ/PipeWire; HA optional OAuth</span>
         </div>
-        <DevicePanel />
+        <DevicePanel tenantId={tenantId} userId={userId} />
       </section>
 
       <section className="card">

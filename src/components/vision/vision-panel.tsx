@@ -21,6 +21,7 @@ export function VisionPanel({ conversationId }: Props) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>("");
   const [visualSessionId, setVisualSessionId] = useState<string | null>(null);
+  const visualSessionRef = useRef<string | null>(null);
   const [boundedActive, setBoundedActive] = useState(false);
   const boundedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const boundedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -32,7 +33,7 @@ export function VisionPanel({ conversationId }: Props) {
       .catch(() => undefined);
   }, []);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (): Promise<boolean> => {
     setError("");
     setMessage("");
     setAnalysis(null);
@@ -68,14 +69,25 @@ export function VisionPanel({ conversationId }: Props) {
           setActive(false);
           setMessage("Share ended.");
           streamRef.current = null;
+          setBoundedActive(false);
+          if (boundedTimerRef.current) { clearInterval(boundedTimerRef.current); boundedTimerRef.current = null; }
+          if (boundedTimeoutRef.current) { clearTimeout(boundedTimeoutRef.current); boundedTimeoutRef.current = null; }
+          const sessionId = visualSessionRef.current;
+          if (sessionId) {
+            void fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, reason: "source_ended" }) }).catch(() => undefined);
+            visualSessionRef.current = null;
+            setVisualSessionId(null);
+          }
         };
       });
+      return true;
     } catch (e) {
       const err = e as DOMException;
       if (err.name === "NotAllowedError") setError("Permission denied. Allow the camera/screen share and try again.");
       else if (err.name === "NotFoundError") setError("No camera found.");
       else setError(`Could not start ${sourceType}: ${err.message || err.name}`);
       setActive(false);
+      return false;
     }
   }, [selectedCamera, sourceType]);
 
@@ -85,8 +97,15 @@ export function VisionPanel({ conversationId }: Props) {
       const res = await fetch("/api/visual/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: sourceType, conversationId: conversationId ?? undefined, sampleIntervalMs: 2000, maxDurationMs: 120000 }) });
       const data = await res.json() as { session?: { id: string } };
       if (!res.ok || !data.session) throw new Error("Could not create visual session");
+      visualSessionRef.current = data.session.id;
       setVisualSessionId(data.session.id);
-      await start();
+      const started = await start();
+      if (!started) {
+        await fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: data.session.id, reason: "source_start_failed" }) }).catch(() => undefined);
+        visualSessionRef.current = null;
+        setVisualSessionId(null);
+        return;
+      }
       setBoundedActive(true);
       setMessage("Bounded session active — sampling 1 frame every 2s. Stop anytime.");
       const doCapture = async () => {
@@ -109,6 +128,7 @@ export function VisionPanel({ conversationId }: Props) {
         void fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: data.session!.id, reason: "timeout" }) }).catch(()=>{});
         if (boundedTimerRef.current) clearInterval(boundedTimerRef.current);
         setVisualSessionId(null);
+        visualSessionRef.current = null;
         streamRef.current?.getTracks().forEach((t) => t.stop());
         setActive(false);
       }, 120000);
@@ -128,6 +148,7 @@ export function VisionPanel({ conversationId }: Props) {
     if (visualSessionId) {
       void fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: visualSessionId, reason: "user_request" }) }).catch(()=>{});
       setVisualSessionId(null);
+      visualSessionRef.current = null;
     }
     setMessage("Stopped. No frames are being sent.");
   }, [visualSessionId]);
@@ -239,12 +260,20 @@ export function VisionPanel({ conversationId }: Props) {
 
   useEffect(() => {
     return () => {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      if (boundedTimerRef.current) clearInterval(boundedTimerRef.current);
-      if (boundedTimeoutRef.current) clearTimeout(boundedTimeoutRef.current);
       if (captured) URL.revokeObjectURL(captured);
     };
   }, [captured]);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (boundedTimerRef.current) clearInterval(boundedTimerRef.current);
+      if (boundedTimeoutRef.current) clearTimeout(boundedTimeoutRef.current);
+      const sessionId = visualSessionRef.current;
+      if (sessionId) void fetch("/api/visual/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, reason: "component_unmounted" }) }).catch(() => undefined);
+      visualSessionRef.current = null;
+    };
+  }, []);
 
   return (
     <div className="stack">

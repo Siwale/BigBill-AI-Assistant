@@ -26,7 +26,7 @@ export function CommandHome({ assistantName, userName, conversations, activeConv
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16 }}>
-        <AidaAvatarStage state={avatarState} level={level} visemes={visemes} audioStartMs={audioStartMs} />
+        <AidaAvatarStage state={avatarState} height={340} level={level} visemes={visemes} audioStartMs={audioStartMs} />
         <div className="aida-panel" style={{ padding: 16 }}>
           <h3 style={{ margin: 0, fontSize: 14, letterSpacing: 1, color: "var(--aida-cyan-4)" }}>Current Focus</h3>
           <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--aida-text)" }}>Ready for your next command. Ask {assistantName} to review a repository, prepare a briefing, or manage devices.</p>

@@ -24,6 +24,8 @@ const RIBBON_ORDER = ["THINKING", "SEARCHING", "ANALYSING", "VERIFYING", "REPORT
 
 type FeedEvent = { time: string; msg: string };
 type FindingGroup = { id: string; count: number; label: string; color: string; bg: string };
+type AuditFinding = { severity: string; title: string; description: string; trustState: string; evidence: Array<{ file: string; lineStart?: number; lineEnd?: number; excerpt?: string }> };
+type Repository = { id: string; displayName: string; branch?: string | null; commitSha?: string | null; enabled: boolean; lastHealthStatus?: string | null; updatedAt?: string };
 
 export function EngineeringWorkspace() {
   const [companion, setCompanion] = useState<string>("checking");
@@ -37,6 +39,13 @@ export function EngineeringWorkspace() {
   const [stages, setStages] = useState<Record<string, StageStatus>>({ REQUEST: "completed" });
   const [coreState, setCoreState] = useState<AidaCoreState>("idle");
   const [error, setError] = useState("");
+  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState("");
+  const [reviewProfile, setReviewProfile] = useState("standard");
+  const [starting, setStarting] = useState(false);
+  const [auditFindings, setAuditFindings] = useState<AuditFinding[]>([]);
+  const [selectedSeverity, setSelectedSeverity] = useState<string | null>(null);
+  const [auditId, setAuditId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,8 +54,11 @@ export function EngineeringWorkspace() {
     // Live repository overview from the registered-repo snapshot (never fabricated)
     void fetch("/api/engineering/repositories").then((r) => r.json()).then((d) => {
       if (cancelled) return;
-      const first = d.repositories?.[0] as { displayName?: string; branch?: string | null; commitSha?: string | null; lastHealthStatus?: string | null; updatedAt?: string } | undefined;
+      const repositories = (d.repositories ?? []) as Repository[];
+      setRepositories(repositories);
+      const first = repositories[0];
       if (first) {
+        setSelectedRepo(first.id);
         setRepo({
           name: first.displayName ?? "—",
           branch: first.branch ?? "—",
@@ -82,8 +94,9 @@ export function EngineeringWorkspace() {
           applyStages(data.events.map((e) => ({ stage: e.stage, status: e.status })));
         }
         const reportRes = await fetch(`/api/engineering/audits/${id}/report`);
-        const report = (await reportRes.json()) as { findings?: Array<{ severity: string; title?: string }> };
+        const report = (await reportRes.json()) as { findings?: AuditFinding[] };
         if (report.findings && !cancelled) {
+          setAuditFindings(report.findings);
           const bySev: Record<string, number> = {};
           for (const f of report.findings) bySev[f.severity] = (bySev[f.severity] ?? 0) + 1;
           const groups: FindingGroup[] = [
@@ -129,9 +142,23 @@ export function EngineeringWorkspace() {
         const auditsRes = await fetch("/api/engineering/audits");
         const auditsData = (await auditsRes.json()) as { audits?: Array<{ id: string }> };
         const auditId = auditsData.audits?.[0]?.id;
+        if (auditId && !cancelled) setAuditId(auditId);
         if (!auditId) {
           if (!cancelled) { setActivity([]); setCoreState("idle"); }
           return;
+        }
+        const reportRes = await fetch(`/api/engineering/audits/${auditId}/report`);
+        const report = await reportRes.json() as { findings?: AuditFinding[] };
+        if (!cancelled && report.findings) {
+          setAuditFindings(report.findings);
+          setTotalFindings(report.findings.length);
+          const counts = report.findings.reduce<Record<string, number>>((acc, finding) => { const key = finding.severity.toLowerCase(); acc[key] = (acc[key] ?? 0) + 1; return acc; }, {});
+          setFindings([
+            { id: "P0", count: counts.critical ?? 0, label: "Critical", color: "#E85B62", bg: "rgba(232,91,98,0.15)" },
+            { id: "P1", count: counts.high ?? 0, label: "High", color: "#BE8D59", bg: "rgba(190,141,89,0.15)" },
+            { id: "P2", count: counts.medium ?? 0, label: "Medium", color: "#DBAE7D", bg: "rgba(219,174,125,0.12)" },
+            { id: "P3", count: (counts.low ?? 0) + (counts.info ?? 0), label: "Low", color: "#48C9F4", bg: "rgba(72,201,244,0.12)" },
+          ].filter((group) => group.count > 0));
         }
         try {
           es = new EventSource(`/api/engineering/audits/${auditId}/events`);
@@ -156,9 +183,43 @@ export function EngineeringWorkspace() {
     }
     void loadLatest();
     return () => { cancelled = true; es?.close(); if (pollTimer) clearTimeout(pollTimer); };
-  }, []);
+  }, [auditId]);
 
   const isDisconnected = companion !== "available" || forge === "not_configured" || forge === "unknown";
+
+  const startReview = async () => {
+    if (!selectedRepo) { setError("Register a repository before starting a review."); return; }
+    setStarting(true); setError("");
+    try {
+      const res = await fetch("/api/engineering/audits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repositoryId: selectedRepo, scopeType: "whole_repository", reviewProfile, includeWorkingChanges: true }) });
+      const data = await res.json() as { audit?: { id: string }; error?: { message?: string } };
+      if (!res.ok || !data.audit?.id) throw new Error(data.error?.message ?? "Review could not be started.");
+      setAuditId(data.audit.id);
+      setActivity([{ time: new Date().toLocaleTimeString(), msg: "Review request submitted. Loading persisted audit events…" }]);
+      const [eventsRes, reportRes] = await Promise.all([fetch(`/api/engineering/audits/${data.audit.id}/events`), fetch(`/api/engineering/audits/${data.audit.id}/report`)]);
+      const events = await eventsRes.json() as { events?: Array<{ createdAt: string; message: string; stage: string; status: string }> };
+      if (events.events) setActivity(events.events.map((e) => ({ time: new Date(e.createdAt).toLocaleTimeString(), msg: e.message })));
+      const report = await reportRes.json() as { findings?: AuditFinding[] };
+      if (report.findings) {
+        setAuditFindings(report.findings);
+        const counts = report.findings.reduce<Record<string, number>>((acc, finding) => { acc[finding.severity] = (acc[finding.severity] ?? 0) + 1; return acc; }, {});
+        setFindings([
+          { id: "P0", count: counts.critical ?? 0, label: "Critical", color: "#E85B62", bg: "rgba(232,91,98,0.15)" },
+          { id: "P1", count: counts.high ?? 0, label: "High", color: "#BE8D59", bg: "rgba(190,141,89,0.15)" },
+          { id: "P2", count: counts.medium ?? 0, label: "Medium", color: "#DBAE7D", bg: "rgba(219,174,125,0.12)" },
+          { id: "P3", count: (counts.low ?? 0) + (counts.info ?? 0), label: "Low", color: "#48C9F4", bg: "rgba(72,201,244,0.12)" },
+        ].filter((group) => group.count > 0));
+        setTotalFindings(report.findings.length);
+      }
+      setError(data.audit ? "" : "Audit returned no record.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Review failed."); }
+    finally { setStarting(false); }
+  };
+
+  const selectedFindings = selectedSeverity ? auditFindings.filter((f) => {
+    const sev = f.severity.toLowerCase();
+    return selectedSeverity === "P0" ? sev === "critical" : selectedSeverity === "P1" ? sev === "high" : selectedSeverity === "P2" ? sev === "medium" : sev === "low" || sev === "info";
+  }) : [];
 
   const timeline: TimelineItem[] = useMemo(() => TIMELINE_ORDER.map((t) => {
     let status: StageStatus = stages[t.id] ?? "pending";
@@ -180,14 +241,19 @@ export function EngineeringWorkspace() {
   const focusLabel = coreState === "idle" ? "Ready" : coreState === "inspecting" ? "Security analysis" : coreState === "searching" ? "Searching sources" : coreState === "verifying" ? "Verifying findings" : coreState === "thinking" ? "Thinking" : coreState;
 
   return (
-    <div className="aida-engineering-page">
+    <div className="aida-engineering-page" data-audit-id={auditId ?? undefined}>
       <div className="aida-grid-eng">
         {/* LEFT STACK */}
         <div className="aida-left-stack">
           <section className="aida-panel aida-request-card" aria-label="Engineering request">
             <h3 className="aida-panel-title"><Code2 /> Engineering Request</h3>
+            <div className="aida-review-controls">
+              <label>Repository<select value={selectedRepo} onChange={(e) => { const id = e.target.value; setSelectedRepo(id); const selected = repositories.find((item) => item.id === id); if (selected) setRepo({ name: selected.displayName, branch: selected.branch ?? "—", commit: selected.commitSha?.slice(0, 7) ?? "—", files: null, languages: "—", health: selected.lastHealthStatus ?? null, updated: selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : "—" }); }}><option value="">Select registered repository</option>{repositories.filter((r) => r.enabled).map((r) => <option key={r.id} value={r.id}>{r.displayName}</option>)}</select></label>
+              <label>Review<select value={reviewProfile} onChange={(e) => setReviewProfile(e.target.value)}><option value="standard">Standard</option><option value="security">Security</option><option value="regression">Regression</option><option value="architecture">Architecture</option></select></label>
+              <button className="btn btn-primary btn-sm" type="button" onClick={() => void startReview()} disabled={starting || !selectedRepo}>{starting ? "Reviewing…" : "Start review"}</button>
+            </div>
             <div style={{ marginTop: 10, background: "rgba(2,8,18,0.6)", border: "1px solid var(--aida-border)", borderRadius: 12, padding: 12, fontSize: 13, color: "var(--aida-text)" }}>
-              {activity.length > 0 ? (activity[activity.length - 1]?.msg ?? "") : "No active audit. Start a review from the command composer or connect the engineering companion."}
+              {activity.length > 0 ? (activity[activity.length - 1]?.msg ?? "") : "Choose a registered repository and start a review. The local companion and Forge must be available to run it."}
             </div>
             <div className="aida-request-meta">
               <div><span>Engine</span><b>{forge === "not_configured" ? "Forge · not connected" : `Forge · ${forge}`}</b></div>
@@ -282,7 +348,7 @@ export function EngineeringWorkspace() {
               {findings.length === 0 ? (
                 <p className="aida-meta">No verified findings yet. Findings appear here only from real audit reports with evidence.</p>
               ) : findings.map((f) => (
-                <button key={f.id} type="button" className="aida-finding">
+                <button key={f.id} type="button" className="aida-finding" aria-expanded={selectedSeverity === f.id} onClick={() => setSelectedSeverity(selectedSeverity === f.id ? null : f.id)}>
                   <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
                     <span className="aida-sev" style={{ background: f.color }}>{f.id}</span>
                     <span style={{ background: f.bg, borderRadius: 6, padding: "2px 6px", fontSize: 11 }}>{f.count}</span>
@@ -292,6 +358,7 @@ export function EngineeringWorkspace() {
                 </button>
               ))}
             </div>
+            {selectedSeverity ? <div className="aida-finding-details" aria-live="polite">{selectedFindings.length ? selectedFindings.map((finding, i) => <article key={`${finding.title}-${i}`}><strong>{finding.title}</strong><p>{finding.description}</p><span>{finding.trustState} · {finding.evidence.map((e) => `${e.file}${e.lineStart ? `:${e.lineStart}` : ""}`).join(", ") || "No source evidence attached"}</span></article>) : <p className="aida-meta">No findings in this severity group for the selected audit.</p>}</div> : null}
           </section>
         </div>
       </div>

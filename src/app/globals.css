@@ -332,11 +332,19 @@
 .aida-request-meta > div > span { color: var(--aida-text-muted); background: rgba(31,159,233,.08); border-radius: 8px; padding: 5px 10px; }
 .aida-request-meta b { font-weight: 500; color: var(--aida-text); }
 .aida-request-meta b.is-connected { color: var(--aida-success); }
+.aida-review-controls { display: grid; grid-template-columns: minmax(0,1fr) minmax(110px,.7fr) auto; gap: 8px; align-items: end; margin-top: 10px; }
+.aida-review-controls label { min-width: 0; display: grid; gap: 4px; color: var(--aida-text-muted); font-size: 10px; }
+.aida-review-controls select { width: 100%; min-width: 0; padding: 6px 8px; color: var(--aida-text); background: rgba(2,8,18,.8); border: 1px solid var(--aida-border); border-radius: 8px; font-size: 11px; }
+.aida-review-controls button { white-space: nowrap; }
+.aida-finding-details { max-height: 190px; overflow: auto; margin-top: 10px; display: grid; gap: 8px; }
+.aida-finding-details article { border-top: 1px solid var(--aida-border); padding-top: 8px; font-size: 11px; }
+.aida-finding-details p { margin: 4px 0; color: var(--aida-text-muted); line-height: 1.4; }
+.aida-finding-details span { color: var(--aida-cyan-3); overflow-wrap: anywhere; }
 .aida-focus-progress { height: 100%; width: 28%; border-radius: inherit; background: linear-gradient(90deg, var(--aida-cyan-2), var(--aida-cyan-4)); box-shadow: 0 0 10px rgba(49,186,242,.5); animation: aida-progress-sweep 2.4s ease-in-out infinite alternate; }
 @keyframes aida-progress-sweep { from { transform: translateX(0); opacity: .55; } to { transform: translateX(250%); opacity: 1; } }
-.aida-centre { display: flex; gap: 14px; align-items: stretch; min-width: 0; min-height: 0; }
-.aida-hero { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
-.aida-avatar-stage { height: 100% !important; min-height: 0; border-radius: 14px !important; }
+.aida-centre { display: flex; gap: 14px; align-items: center; min-width: 0; min-height: 0; }
+.aida-hero { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; max-height: 460px; }
+.aida-centre .aida-avatar-stage { height: 100% !important; min-height: 0; border-radius: 14px !important; }
 .aida-avatar-stage > canvas { display: block; }
 .aida-hero-caption { position: absolute; right: 20px; top: 41%; z-index: 5; display: flex; flex-direction: column; gap: 2px; pointer-events: none; text-shadow: 0 2px 8px #020812; }
 .aida-hero-caption strong { color: var(--aida-cyan-4); font-size: 28px; font-weight: 500; letter-spacing: 1px; }
@@ -389,7 +397,7 @@
   .aida-right-stack {
     grid-template-columns: 1fr;
   }
-  .aida-centre { min-height: 560px; }
+  .aida-centre { min-height: 390px; }
   .aida-left-stack { display: grid; grid-template-columns: 1fr 1fr; }
   .aida-left-stack > .aida-panel { min-height: 190px; }
   .aida-left-stack > .aida-request-card { grid-column: 1 / -1; }
@@ -409,6 +417,8 @@
   }
 }
 @media (max-width: 720px) {
+  .aida-review-controls { grid-template-columns: 1fr 1fr; }
+  .aida-review-controls button { grid-column: 1 / -1; }
   .aida-loop-badge {
     display: none;
   }
@@ -419,7 +429,7 @@
     flex-direction: column;
     min-height: 0;
   }
-  .aida-hero { height: 460px; flex: none; }
+  .aida-hero { height: 340px; flex: none; }
   .aida-left-stack { grid-template-columns: 1fr; }
   .aida-left-stack > .aida-request-card { grid-column: auto; }
   .aida-timeline {

@@ -5,7 +5,7 @@
  */
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 const PORT = Number(process.env.COMPANION_PORT ?? 8787);
 const HOST = "127.0.0.1";
@@ -23,7 +23,7 @@ function json(res: ServerResponse, status: number, data: unknown) {
 function checkOrigin(req: IncomingMessage): boolean {
   const origin = req.headers.origin ?? "";
   if (!origin) return true; // allow curl without origin for smoke test
-  return origin === ALLOW_ORIGIN || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
+  return origin === ALLOW_ORIGIN;
 }
 
 function requireAuth(req: IncomingMessage): Session | null {
@@ -83,11 +83,13 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/pair" && req.method === "POST") {
     const code = String(jsonBody.code ?? "").trim();
     if (!PAIRING_CODE || code !== PAIRING_CODE) { json(res, 403, { error: "invalid pairing code" }); return; }
-    const tenantId = String(jsonBody.tenantId ?? "test-tenant");
-    const userId = String(jsonBody.userId ?? "test-user");
+    const tenantId = String(jsonBody.tenantId ?? "").trim();
+    const userId = String(jsonBody.userId ?? "").trim();
+    if (!tenantId || !userId || tenantId.length > 200 || userId.length > 200) { json(res, 400, { error: "authenticated tenant and user are required" }); return; }
     const token = `comp_${randomBytes(16).toString("hex")}`;
-    sessions.set(token, { token, tenantId, userId, expiresAt: Date.now() + 30 * 60 * 1000 });
-    json(res, 200, { token, expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString() });
+    const expiresAt = Date.now() + 30 * 60 * 1000;
+    sessions.set(token, { token, tenantId, userId, expiresAt });
+    json(res, 200, { token, expiresAt: new Date(expiresAt).toISOString() });
     return;
   }
 
@@ -96,6 +98,14 @@ const server = createServer(async (req, res) => {
     const hasPactl = await allowlistedExec("which", ["pactl"]).then((r) => r.code === 0 ? "available" : "missing");
     const hasWpctl = await allowlistedExec("which", ["wpctl"]).then((r) => r.code === 0 ? "available" : "missing");
     json(res, 200, { host: HOST, port: PORT, bluetoothctl: hasBluetoothctl, pactl: hasPactl, wpctl: hasWpctl, sessions: sessions.size });
+    return;
+  }
+
+  if (url.pathname === "/unpair" && req.method === "POST") {
+    const session = requireAuth(req);
+    if (!session) { json(res, 401, { error: "missing or expired companion session" }); return; }
+    sessions.delete(session.token);
+    json(res, 200, { ok: true });
     return;
   }
 
@@ -122,6 +132,14 @@ const server = createServer(async (req, res) => {
     const mac = parseMac(String(jsonBody.mac ?? ""));
     if (!mac) { json(res, 400, { error: "invalid mac" }); return; }
     const r = await allowlistedExec("bluetoothctl", ["connect", mac]);
+    json(res, r.code === 0 ? 200 : 502, { stdout: r.stdout.slice(0, 2000), stderr: r.stderr.slice(0, 2000), code: r.code });
+    return;
+  }
+
+  if (url.pathname === "/devices/pair" && req.method === "POST") {
+    const mac = parseMac(String(jsonBody.mac ?? ""));
+    if (!mac) { json(res, 400, { error: "invalid mac" }); return; }
+    const r = await allowlistedExec("bluetoothctl", ["pair", mac]);
     json(res, r.code === 0 ? 200 : 502, { stdout: r.stdout.slice(0, 2000), stderr: r.stderr.slice(0, 2000), code: r.code });
     return;
   }

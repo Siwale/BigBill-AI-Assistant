@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioVisualizer } from "@/components/voice/audio-visualizer";
+import { BluetoothCompanion } from "@/components/device/bluetooth-companion";
 
 type Capability = {
   secureContext: boolean;
@@ -41,7 +42,7 @@ function detectCapabilities(): Capability {
 
 type DeviceInfo = MediaDeviceInfo;
 
-export function DevicePanel() {
+export function DevicePanel({ tenantId, userId }: { tenantId: string; userId: string }) {
   const [cap, setCap] = useState<Capability | null>(null);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [selectedInput, setSelectedInput] = useState<string>("");
@@ -355,6 +356,8 @@ export function DevicePanel() {
           <audio ref={outputAudioRef} controls style={{ width: "100%", marginTop: 4 }} />
         </div>
       </div>
+
+      <BluetoothCompanion tenantId={tenantId} userId={userId} />
 
       <div className="card stack">
         <h3 className="section-title">Diagnostics</h3>
